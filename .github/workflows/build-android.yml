@@ -5,6 +5,11 @@
 # an artifact. Download it from the workflow run's Artifacts section and
 # sideload it on an Android phone. No Play Store account or signing key is
 # needed for a debug APK.
+#
+# FIX 2026-11-21: do NOT use android-actions/setup-android — it tries to
+# install the obsolete "tools" package and fails on modern cmdline-tools
+# (run #1 failed on `sdkmanager tools`). The ubuntu runner already has the
+# Android SDK preinstalled; install only valid packages with sdkmanager.
 name: Build Android APK
 
 on:
@@ -20,7 +25,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: npm
 
       - uses: actions/setup-java@v4
@@ -28,10 +33,11 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - uses: android-actions/setup-android@v3
-
       - name: Install Android SDK platform 35
-        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+        run: |
+          export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$PATH"
+          sdkmanager "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+          yes | sdkmanager --licenses || true
 
       - name: Install dependencies
         run: npm ci
