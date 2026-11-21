@@ -10,6 +10,8 @@
 # install the obsolete "tools" package and fails on modern cmdline-tools
 # (run #1 failed on `sdkmanager tools`). The ubuntu runner already has the
 # Android SDK preinstalled; install only valid packages with sdkmanager.
+# FIX 2026-11-21 (run #2): Capacitor 7 needs Java 21 — JDK 17 fails with
+# "invalid source release: 21", so setup-java uses Temurin 21.
 name: Build Android APK
 
 on:
@@ -31,7 +33,7 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: '21'
 
       - name: Install Android SDK platform 35
         run: |
