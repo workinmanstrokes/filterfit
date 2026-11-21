@@ -1,0 +1,54 @@
+# FilterFit — iOS native build (UNSIGNED).
+#
+# Generates the native iOS platform fresh from this repo (ios/ is NOT
+# committed — see .gitignore) and builds the app with xcodebuild without
+# signing (CODE_SIGNING_ALLOWED=NO). This proves the native iOS project
+# builds. An unsigned .app CANNOT be installed on a real iPhone — that needs
+# an Apple Developer account ($99/year) plus a signing certificate and a
+# provisioning profile, via Xcode or TestFlight.
+name: Build iOS (unsigned)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build web app
+        run: npm run build
+
+      - name: Add iOS platform
+        run: npx cap add ios
+
+      - name: Sync iOS platform
+        run: npx cap sync ios
+
+      # NOTE: -target, not -scheme. Capacitor's iOS template ships with NO
+      # shared scheme file, so `xcodebuild -scheme App` fails on a fresh
+      # checkout. Building the App target directly needs no scheme.
+      - name: Build app (no signing)
+        run: >-
+          xcodebuild -workspace ios/App/App.xcworkspace -target App
+          -configuration Debug -sdk iphoneos
+          -destination 'generic/platform=iOS'
+          -derivedDataPath ios/App/build
+          CODE_SIGNING_ALLOWED=NO build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: filterfit-ios-unsigned
+          path: ios/App/build/Build/Products/Debug-iphoneos/App.app
+          if-no-files-found: error
