@@ -4,6 +4,8 @@
 import { FILTERS, getFilter, renderFiltered, renderPreview } from './filters.js';
 import { analyzePhoto, recommendFilters, explainPick } from './analyze.js';
 import { runDiagnostics, createSliderLagTracker } from './perf.js';
+import { Camera, CameraResultType, CameraSource } from '@capacitor/camera';
+import { Capacitor } from '@capacitor/core';
 
 const $ = (id) => document.getElementById(id);
 const HISTORY_KEY = 'filterfit.history.v1';
@@ -118,7 +120,7 @@ function renderPresets() {
       if (!preset) return;
       if (state.image) { applyPreset(preset); return; }
       state.pendingPreset = preset;
-      $('fileInput').click();
+      pickPhotoNative(CameraSource.Photos).then((r) => { if (r === 'unavailable') $('fileInput').click(); });
     });
   });
 }
@@ -319,18 +321,54 @@ function initDiagnostics() {
   });
 }
 
+// ---------- Native photo picking ----------
+// On a native build (Android / iOS) the Capacitor Camera plugin opens the
+// system camera or photo picker directly. On the web the same buttons fall
+// back to the file input, so the flow is identical everywhere: the picked
+// photo always goes through handleFile() and the same analysis pipeline.
+// Returns 'picked', 'cancelled', or 'unavailable' (not a native build, or
+// the plugin failed). A cancel must NOT fall through to the file input —
+// the user said no once already.
+async function pickPhotoNative(source) {
+  if (!Capacitor.isNativePlatform()) return 'unavailable';
+  try {
+    const photo = await Camera.getPhoto({
+      quality: 90,
+      allowEditing: false,
+      resultType: CameraResultType.Uri,
+      source,
+    });
+    if (!photo.webPath) return 'cancelled';
+    const res = await fetch(photo.webPath);
+    const blob = await res.blob();
+    await handleFile(new File([blob], `photo-${Date.now()}.jpg`, { type: blob.type || 'image/jpeg' }));
+    return 'picked';
+  } catch (e) {
+    if (/cancel/i.test(String((e && e.message) || ''))) return 'cancelled';
+    return 'unavailable';
+  }
+}
+
 // ---------- Wiring ----------
 // Import wiring
-$('dropZone').addEventListener('click', () => $('fileInput').click());
+$('dropZone').addEventListener('click', async () => {
+  const r = await pickPhotoNative(CameraSource.Photos);
+  if (r === 'unavailable') $('fileInput').click();
+});
 $('fileInput').addEventListener('change', (e) => handleFile(e.target.files[0]));
-$('libraryBtn').addEventListener('click', () => $('fileInput').click());
-$('cameraBtn').addEventListener('click', () => {
-  // On native builds this uses the Capacitor Camera plugin; in the browser
-  // the file input with capture falls back to the camera.
-  const input = $('fileInput');
-  input.setAttribute('capture', 'environment');
-  input.click();
-  input.removeAttribute('capture');
+$('libraryBtn').addEventListener('click', async () => {
+  const r = await pickPhotoNative(CameraSource.Photos);
+  if (r === 'unavailable') $('fileInput').click();
+});
+$('cameraBtn').addEventListener('click', async () => {
+  const r = await pickPhotoNative(CameraSource.Camera);
+  if (r === 'unavailable') {
+    // Web fallback: the file input with capture opens the camera.
+    const input = $('fileInput');
+    input.setAttribute('capture', 'environment');
+    input.click();
+    input.removeAttribute('capture');
+  }
 });
 $('historyBtn').addEventListener('click', () => { showScreen('home'); renderHistory(); });
 

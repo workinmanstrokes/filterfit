@@ -81,7 +81,34 @@ npm run dev        # Vite dev server
 npm run build      # production web build into dist/
 ```
 
-## iOS / Android builds (Capacitor)
+## Native builds (Android APK + iOS)
+
+The native platform folders (`android/`, `ios/`) are **generated, not committed**
+— they are built fresh in CI from this repo (see `.gitignore`). The workflows
+live in `.github/workflows/`:
+
+- **`build-android.yml`** — on every push to `main` (and manual dispatch):
+  checks out the repo, sets up Node + JDK 17 + the Android SDK, runs
+  `npm ci`, `npm run build`, `npx cap add android`, `npx cap sync android`,
+  then builds the debug APK with Gradle and uploads it as the
+  `filterfit-debug-apk` artifact. Download it from the workflow run's
+  Artifacts section, then sideload it on an Android phone: transfer the
+  `.apk` to the phone, tap it, allow "Install unknown apps" for the app
+  that opens it, and install. No Play Store account or signing key is needed
+  for a debug APK.
+- **`build-ios.yml`** — macOS runner, same web build, `npx cap add ios`,
+  `npx cap sync ios`, then `xcodebuild` builds the app **without signing**
+  (`CODE_SIGNING_ALLOWED=NO`) and uploads the unsigned `.app` as an
+  artifact. This proves the native iOS project builds.
+
+**iOS signing — read this before expecting an iPhone install:** an unsigned
+iOS build **cannot be installed on a real iPhone**. Installing on an iPhone
+needs an Apple Developer account ($99/year) plus a signing certificate and a
+provisioning profile, and distribution through Xcode or TestFlight. Until
+that exists, the iPhone options are the web app or Add to Home Screen from
+Safari (not a native install, but the same app in full screen).
+
+Local commands (same as CI, minus the SDK signing):
 
 ```bash
 npx cap add ios
