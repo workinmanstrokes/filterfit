@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FilterFit blind pick test</title>
+<style>
+  body { font-family: system-ui, sans-serif; background: #020617; color: #f1f5f9; margin: 0; padding: 16px; }
+  .wrap { max-width: 720px; margin: 0 auto; }
+  h1 { font-size: 20px; } p { color: #94a3b8; font-size: 14px; }
+  .photo { width: 100%; border-radius: 12px; display: block; }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 14px; }
+  .opt { background: none; border: 2px solid #1e293b; border-radius: 12px; padding: 0; cursor: pointer; overflow: hidden; text-align: left; }
+  .opt:hover { border-color: #34d399; }
+  .opt img { width: 100%; height: 92px; object-fit: cover; display: block; }
+  .opt span { display: block; padding: 6px 8px; font-size: 13px; font-weight: 600; color: #f1f5f9; }
+  .bar { height: 8px; background: #1e293b; border-radius: 4px; overflow: hidden; margin: 12px 0; }
+  .bar div { height: 100%; background: #34d399; }
+  input[type=text] { background: #0f172a; border: 1px solid #334155; color: #f1f5f9; border-radius: 8px; padding: 8px 10px; font-size: 14px; }
+  button.primary { background: #34d399; color: #022c22; border: none; border-radius: 10px; padding: 12px 18px; font-weight: 700; font-size: 15px; cursor: pointer; }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div id="intro">
+    <h1>FilterFit blind pick test</h1>
+    <p>You'll see 24 photos, one at a time. Under each photo are the 12 FilterFit looks.
+    Tap the one you like best for that photo. There are no wrong answers — and the
+    app's own pick is <b>not</b> shown anywhere, so you can't be influenced by it.</p>
+    <p>Your name (so we can tell the three testers apart):<br>
+    <input type="text" id="personName" placeholder="e.g. Alex" style="margin-top:6px; width: 220px;"></p>
+    <p><button class="primary" id="startBtn">Start — 24 photos</button></p>
+    <p class="hidden" id="resumeNote">You have picks saved from an earlier session — starting resumes where you left off.</p>
+  </div>
+
+  <div id="test" class="hidden">
+    <div class="bar"><div id="progressBar" style="width:0%"></div></div>
+    <p id="counter"></p>
+    <img id="photo" class="photo" alt="Test photo">
+    <p>Tap your favourite look:</p>
+    <div class="grid" id="options"></div>
+  </div>
+
+  <div id="done" class="hidden">
+    <h1>Done — thank you!</h1>
+    <p>You picked a favourite for all 24 photos. Download the file below and send it back — that's the whole test.</p>
+    <p><button class="primary" id="downloadBtn">Download my picks (JSON)</button></p>
+    <p id="doneNote"></p>
+  </div>
+</div>
+
+<script type="module">
+import { FILTERS } from '../src/filters.js';
+
+const STORE_KEY = 'filterfit.blindpicks.v1';
+// Fixed shuffle (seed 7) so all three testers see the same photo order and
+// their picks are comparable photo-by-photo.
+function shuffled(arr) {
+  const a = [...arr];
+  let seed = 7;
+  const rand = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
+  for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(rand() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
+  return a;
+}
+
+const manifest = await (await fetch('photos.json')).json();
+const order = shuffled(manifest);
+let saved = {};
+try { saved = JSON.parse(localStorage.getItem(STORE_KEY)) || {}; } catch { saved = {}; }
+if (saved.picks && Object.keys(saved.picks).length) {
+  document.getElementById('resumeNote').classList.remove('hidden');
+}
+if (saved.person) document.getElementById('personName').value = saved.person;
+
+let picks = saved.picks || {};
+let index = order.findIndex((p) => !(p.id in picks));
+if (index === -1) index = order.length;
+
+const $ = (id) => document.getElementById(id);
+function save() {
+  localStorage.setItem(STORE_KEY, JSON.stringify({ person: $('personName').value.trim(), picks, savedAt: Date.now() }));
+}
+
+function showPhoto() {
+  if (index >= order.length) {
+    $('test').classList.add('hidden');
+    $('done').classList.remove('hidden');
+    $('doneNote').textContent = `${Object.keys(picks).length} picks recorded for "${$('personName').value.trim() || 'unnamed'}".`;
+    save();
+    return;
+  }
+  const photo = order[index];
+  $('counter').textContent = `Photo ${index + 1} of ${order.length} — ${photo.category}`;
+  $('progressBar').style.width = `${Math.round((index / order.length) * 100)}%`;
+  $('photo').src = 'photos/' + photo.file;
+  $('options').innerHTML = FILTERS.map((f) => `
+    <button class="opt" data-filter="${f.id}">
+      <img src="photos/${photo.file}" style="filter: ${f.css === 'none' ? 'none' : f.css}" alt="">
+      <span>${f.name}</span>
+    </button>`).join('');
+  $('options').querySelectorAll('.opt').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      picks[photo.id] = btn.dataset.filter;
+      save();
+      index = order.findIndex((p) => !(p.id in picks));
+      if (index === -1) index = order.length;
+      showPhoto();
+    });
+  });
+}
+
+$('startBtn').addEventListener('click', () => {
+  save();
+  $('intro').classList.add('hidden');
+  $('test').classList.remove('hidden');
+  showPhoto();
+});
+
+$('downloadBtn').addEventListener('click', () => {
+  const person = $('personName').value.trim() || 'unnamed';
+  const data = {
+    person,
+    startedAt: saved.startedAt || new Date().toISOString(),
+    finishedAt: new Date().toISOString(),
+    picks: order.map((p) => ({ photoId: p.id, category: p.category, filterId: picks[p.id] || null })),
+  };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `filterfit-blind-picks-${person.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}.json`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+});
+</script>
+</body>
+</html>

@@ -23,6 +23,15 @@ body {
   @apply border-emerald-400 text-emerald-300;
 }
 
+.preset-chip {
+  @apply bg-slate-900 border border-slate-700 rounded-full px-3 py-1.5 text-xs cursor-pointer transition;
+}
+
+.preset-chip:hover {
+  @apply border-emerald-400 text-emerald-300;
+}
+
 canvas {
   touch-action: manipulation;
 }
+

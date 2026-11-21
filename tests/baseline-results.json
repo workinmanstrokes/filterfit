@@ -1,0 +1,701 @@
+{
+  "generatedAt": "2026-11-21T21:52:49.177Z",
+  "photos": [
+    {
+      "id": "portrait-01",
+      "category": "portrait",
+      "file": "desert1.jpg",
+      "analysis": {
+        "brightness": 0.643,
+        "contrast": 0.65,
+        "warmth": 0.038,
+        "saturation": 0.184,
+        "dominant": "warm-red",
+        "subject": "general photo"
+      },
+      "topPick": "noir",
+      "topScore": 70,
+      "top3": [
+        {
+          "filter": "noir",
+          "score": 70
+        },
+        {
+          "filter": "soft-fade",
+          "score": 70
+        },
+        {
+          "filter": "golden-hour",
+          "score": 67
+        }
+      ]
+    },
+    {
+      "id": "portrait-02",
+      "category": "portrait",
+      "file": "window2.jpg",
+      "analysis": {
+        "brightness": 0.366,
+        "contrast": 0.266,
+        "warmth": -0.062,
+        "saturation": 0.254,
+        "dominant": "blue",
+        "subject": "general photo"
+      },
+      "topPick": "moody",
+      "topScore": 79,
+      "top3": [
+        {
+          "filter": "moody",
+          "score": 79
+        },
+        {
+          "filter": "soft-fade",
+          "score": 65
+        },
+        {
+          "filter": "warm-glow",
+          "score": 61
+        }
+      ]
+    },
+    {
+      "id": "portrait-03",
+      "category": "portrait",
+      "file": "cake1.jpg",
+      "analysis": {
+        "brightness": 0.614,
+        "contrast": 0.494,
+        "warmth": 0.112,
+        "saturation": 0.195,
+        "dominant": "warm-red",
+        "subject": "general photo"
+      },
+      "topPick": "golden-hour",
+      "topScore": 70,
+      "top3": [
+        {
+          "filter": "golden-hour",
+          "score": 70
+        },
+        {
+          "filter": "soft-fade",
+          "score": 70
+        },
+        {
+          "filter": "noir",
+          "score": 67
+        }
+      ]
+    },
+    {
+      "id": "landscape-01",
+      "category": "landscape",
+      "file": "dusk1.jpg",
+      "analysis": {
+        "brightness": 0.745,
+        "contrast": 0.51,
+        "warmth": -0.02,
+        "saturation": 0.124,
+        "dominant": "blue",
+        "subject": "general photo"
+      },
+      "topPick": "noir",
+      "topScore": 71,
+      "top3": [
+        {
+          "filter": "noir",
+          "score": 71
+        },
+        {
+          "filter": "arctic",
+          "score": 71
+        },
+        {
+          "filter": "soft-fade",
+          "score": 70
+        }
+      ]
+    },
+    {
+      "id": "landscape-02",
+      "category": "landscape",
+      "file": "food3.jpg",
+      "analysis": {
+        "brightness": 0.427,
+        "contrast": 0.517,
+        "warmth": 0.143,
+        "saturation": 0.441,
+        "dominant": "warm-red",
+        "subject": "general photo"
+      },
+      "topPick": "warm-glow",
+      "topScore": 74,
+      "top3": [
+        {
+          "filter": "warm-glow",
+          "score": 74
+        },
+        {
+          "filter": "golden-hour",
+          "score": 71
+        },
+        {
+          "filter": "vivid",
+          "score": 66
+        }
+      ]
+    },
+    {
+      "id": "landscape-03",
+      "category": "landscape",
+      "file": "portrait1.jpg",
+      "analysis": {
+        "brightness": 0.65,
+        "contrast": 0.513,
+        "warmth": -0.032,
+        "saturation": 0.191,
+        "dominant": "blue",
+        "subject": "general photo"
+      },
+      "topPick": "soft-fade",
+      "topScore": 70,
+      "top3": [
+        {
+          "filter": "soft-fade",
+          "score": 70
+        },
+        {
+          "filter": "noir",
+          "score": 67
+        },
+        {
+          "filter": "golden-hour",
+          "score": 64
+        }
+      ]
+    },
+    {
+      "id": "food-01",
+      "category": "food",
+      "file": "dog1.jpg",
+      "analysis": {
+        "brightness": 0.7,
+        "contrast": 0.488,
+        "warmth": 0.27,
+        "saturation": 0.333,
+        "dominant": "warm-red",
+        "subject": "general photo"
+      },
+      "topPick": "golden-hour",
+      "topScore": 77,
+      "top3": [
+        {
+          "filter": "golden-hour",
+          "score": 77
+        },
+        {
+          "filter": "rose",
+          "score": 75
+        },
+        {
+          "filter": "soft-fade",
+          "score": 70
+        }
+      ]
+    },
+    {
+      "id": "food-02",
+      "category": "food",
+      "file": "food-pizza.jpg",
+      "analysis": {
+        "brightness": 0.564,
+        "contrast": 0.423,
+        "warmth": 0.216,
+        "saturation": 0.389,
+        "dominant": "warm-red",
+        "subject": "general photo"
+      },
+      "topPick": "golden-hour",
+      "topScore": 75,
+      "top3": [
+        {
+          "filter": "golden-hour",
+          "score": 75
+        },
+        {
+          "filter": "rose",
+          "score": 75
+        },
+        {
+          "filter": "sunset",
+          "score": 69
+        }
+      ]
+    },
+    {
+      "id": "food-03",
+      "category": "food",
+      "file": "food-burger.jpg",
+      "analysis": {
+        "brightness": 0.444,
+        "contrast": 0.457,
+        "warmth": 0.178,
+        "saturation": 0.409,
+        "dominant": "warm-red",
+        "subject": "general photo"
+      },
+      "topPick": "warm-glow",
+      "topScore": 76,
+      "top3": [
+        {
+          "filter": "warm-glow",
+          "score": 76
+        },
+        {
+          "filter": "rose",
+          "score": 75
+        },
+        {
+          "filter": "golden-hour",
+          "score": 73
+        }
+      ]
+    },
+    {
+      "id": "pet-01",
+      "category": "pet",
+      "file": "coffee1.jpg",
+      "analysis": {
+        "brightness": 0.407,
+        "contrast": 0.07,
+        "warmth": -0.096,
+        "saturation": 0.27,
+        "dominant": "green",
+        "subject": "general photo"
+      },
+      "topPick": "emerald",
+      "topScore": 85,
+      "top3": [
+        {
+          "filter": "emerald",
+          "score": 85
+        },
+        {
+          "filter": "soft-fade",
+          "score": 65
+        },
+        {
+          "filter": "golden-hour",
+          "score": 61
+        }
+      ]
+    },
+    {
+      "id": "pet-02",
+      "category": "pet",
+      "file": "fruit1.jpg",
+      "analysis": {
+        "brightness": 0.927,
+        "contrast": 0.163,
+        "warmth": -0.075,
+        "saturation": 0.08,
+        "dominant": "blue",
+        "subject": "bright scene"
+      },
+      "topPick": "soft-fade",
+      "topScore": 91,
+      "top3": [
+        {
+          "filter": "soft-fade",
+          "score": 91
+        },
+        {
+          "filter": "arctic",
+          "score": 81
+        },
+        {
+          "filter": "noir",
+          "score": 69
+        }
+      ]
+    },
+    {
+      "id": "pet-03",
+      "category": "pet",
+      "file": "parrot1.jpg",
+      "analysis": {
+        "brightness": 0.43,
+        "contrast": 0.412,
+        "warmth": 0.002,
+        "saturation": 0.523,
+        "dominant": "green",
+        "subject": "colourful scene"
+      },
+      "topPick": "emerald",
+      "topScore": 85,
+      "top3": [
+        {
+          "filter": "emerald",
+          "score": 85
+        },
+        {
+          "filter": "vivid",
+          "score": 78
+        },
+        {
+          "filter": "sunset",
+          "score": 67
+        }
+      ]
+    },
+    {
+      "id": "low-light-01",
+      "category": "low-light",
+      "file": "night2.jpg",
+      "analysis": {
+        "brightness": 0.238,
+        "contrast": 0.482,
+        "warmth": 0.114,
+        "saturation": 0.416,
+        "dominant": "warm-red",
+        "subject": "low-light"
+      },
+      "topPick": "moody",
+      "topScore": 92,
+      "top3": [
+        {
+          "filter": "moody",
+          "score": 92
+        },
+        {
+          "filter": "warm-glow",
+          "score": 72
+        },
+        {
+          "filter": "noir",
+          "score": 65
+        }
+      ]
+    },
+    {
+      "id": "low-light-02",
+      "category": "low-light",
+      "file": "office1.jpg",
+      "analysis": {
+        "brightness": 0.329,
+        "contrast": 0.454,
+        "warmth": -0.137,
+        "saturation": 0.386,
+        "dominant": "blue",
+        "subject": "general photo"
+      },
+      "topPick": "moody",
+      "topScore": 82,
+      "top3": [
+        {
+          "filter": "moody",
+          "score": 82
+        },
+        {
+          "filter": "vivid",
+          "score": 62
+        },
+        {
+          "filter": "emerald",
+          "score": 60
+        }
+      ]
+    },
+    {
+      "id": "low-light-03",
+      "category": "low-light",
+      "file": "pizza1.jpg",
+      "analysis": {
+        "brightness": 0.22,
+        "contrast": 0.348,
+        "warmth": 0.061,
+        "saturation": 0.347,
+        "dominant": "warm-red",
+        "subject": "low-light"
+      },
+      "topPick": "moody",
+      "topScore": 90,
+      "top3": [
+        {
+          "filter": "moody",
+          "score": 90
+        },
+        {
+          "filter": "warm-glow",
+          "score": 69
+        },
+        {
+          "filter": "soft-fade",
+          "score": 65
+        }
+      ]
+    },
+    {
+      "id": "sunset-01",
+      "category": "sunset",
+      "file": "bird1.jpg",
+      "analysis": {
+        "brightness": 0.43,
+        "contrast": 0.6,
+        "warmth": 0.06,
+        "saturation": 0.238,
+        "dominant": "warm-red",
+        "subject": "general photo"
+      },
+      "topPick": "warm-glow",
+      "topScore": 69,
+      "top3": [
+        {
+          "filter": "warm-glow",
+          "score": 69
+        },
+        {
+          "filter": "golden-hour",
+          "score": 68
+        },
+        {
+          "filter": "noir",
+          "score": 66
+        }
+      ]
+    },
+    {
+      "id": "sunset-02",
+      "category": "sunset",
+      "file": "cat1.jpg",
+      "analysis": {
+        "brightness": 0.528,
+        "contrast": 0.493,
+        "warmth": -0.085,
+        "saturation": 0.373,
+        "dominant": "blue",
+        "subject": "general photo"
+      },
+      "topPick": "vivid",
+      "topScore": 64,
+      "top3": [
+        {
+          "filter": "vivid",
+          "score": 64
+        },
+        {
+          "filter": "golden-hour",
+          "score": 61
+        },
+        {
+          "filter": "rose",
+          "score": 60
+        }
+      ]
+    },
+    {
+      "id": "sunset-03",
+      "category": "sunset",
+      "file": "portrait2.jpg",
+      "analysis": {
+        "brightness": 0.469,
+        "contrast": 0.41,
+        "warmth": 0.3,
+        "saturation": 0.445,
+        "dominant": "warm-red",
+        "subject": "general photo"
+      },
+      "topPick": "golden-hour",
+      "topScore": 79,
+      "top3": [
+        {
+          "filter": "golden-hour",
+          "score": 79
+        },
+        {
+          "filter": "rose",
+          "score": 75
+        },
+        {
+          "filter": "sunset",
+          "score": 74
+        }
+      ]
+    },
+    {
+      "id": "backlit-01",
+      "category": "backlit",
+      "file": "beach1.jpg",
+      "analysis": {
+        "brightness": 0.564,
+        "contrast": 0.532,
+        "warmth": 0.243,
+        "saturation": 0.426,
+        "dominant": "warm-red",
+        "subject": "general photo"
+      },
+      "topPick": "golden-hour",
+      "topScore": 76,
+      "top3": [
+        {
+          "filter": "golden-hour",
+          "score": 76
+        },
+        {
+          "filter": "rose",
+          "score": 75
+        },
+        {
+          "filter": "sunset",
+          "score": 71
+        }
+      ]
+    },
+    {
+      "id": "backlit-02",
+      "category": "backlit",
+      "file": "lake1.jpg",
+      "analysis": {
+        "brightness": 0.607,
+        "contrast": 0.534,
+        "warmth": 0.214,
+        "saturation": 0.329,
+        "dominant": "warm-red",
+        "subject": "general photo"
+      },
+      "topPick": "golden-hour",
+      "topScore": 75,
+      "top3": [
+        {
+          "filter": "golden-hour",
+          "score": 75
+        },
+        {
+          "filter": "rose",
+          "score": 75
+        },
+        {
+          "filter": "soft-fade",
+          "score": 70
+        }
+      ]
+    },
+    {
+      "id": "backlit-03",
+      "category": "backlit",
+      "file": "field1.jpg",
+      "analysis": {
+        "brightness": 0.567,
+        "contrast": 0.501,
+        "warmth": 0.036,
+        "saturation": 0.108,
+        "dominant": "warm-red",
+        "subject": "general photo"
+      },
+      "topPick": "noir",
+      "topScore": 72,
+      "top3": [
+        {
+          "filter": "noir",
+          "score": 72
+        },
+        {
+          "filter": "golden-hour",
+          "score": 67
+        },
+        {
+          "filter": "rose",
+          "score": 60
+        }
+      ]
+    },
+    {
+      "id": "flat-daylight-01",
+      "category": "flat-daylight",
+      "file": "cat2.jpg",
+      "analysis": {
+        "brightness": 0.579,
+        "contrast": 0.574,
+        "warmth": 0.069,
+        "saturation": 0.28,
+        "dominant": "warm-red",
+        "subject": "general photo"
+      },
+      "topPick": "golden-hour",
+      "topScore": 68,
+      "top3": [
+        {
+          "filter": "golden-hour",
+          "score": 68
+        },
+        {
+          "filter": "noir",
+          "score": 63
+        },
+        {
+          "filter": "vivid",
+          "score": 60
+        }
+      ]
+    },
+    {
+      "id": "flat-daylight-02",
+      "category": "flat-daylight",
+      "file": "food1.jpg",
+      "analysis": {
+        "brightness": 0.656,
+        "contrast": 0.338,
+        "warmth": 0.033,
+        "saturation": 0.125,
+        "dominant": "warm-red",
+        "subject": "general photo"
+      },
+      "topPick": "soft-fade",
+      "topScore": 85,
+      "top3": [
+        {
+          "filter": "soft-fade",
+          "score": 85
+        },
+        {
+          "filter": "noir",
+          "score": 69
+        },
+        {
+          "filter": "arctic",
+          "score": 69
+        }
+      ]
+    },
+    {
+      "id": "flat-daylight-03",
+      "category": "flat-daylight",
+      "file": "garden1.jpg",
+      "analysis": {
+        "brightness": 0.558,
+        "contrast": 0.411,
+        "warmth": 0.074,
+        "saturation": 0.177,
+        "dominant": "warm-red",
+        "subject": "general photo"
+      },
+      "topPick": "golden-hour",
+      "topScore": 68,
+      "top3": [
+        {
+          "filter": "golden-hour",
+          "score": 68
+        },
+        {
+          "filter": "noir",
+          "score": 67
+        },
+        {
+          "filter": "rose",
+          "score": 60
+        }
+      ]
+    }
+  ]
+}

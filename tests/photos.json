@@ -1,0 +1,170 @@
+[
+  {
+    "id": "portrait-01",
+    "category": "portrait",
+    "file": "desert1.jpg",
+    "source": "https://picsum.photos/seed/desert1/800/600 (picsum.photos serves Unsplash-sourced photos, free to use)",
+    "verifiedContent": "man in a suit holding a coffee cup, close crop"
+  },
+  {
+    "id": "portrait-02",
+    "category": "portrait",
+    "file": "window2.jpg",
+    "source": "https://picsum.photos/seed/window2/800/600 (picsum.photos serves Unsplash-sourced photos, free to use)",
+    "verifiedContent": "woman seen from behind in a birch forest"
+  },
+  {
+    "id": "portrait-03",
+    "category": "portrait",
+    "file": "cake1.jpg",
+    "source": "https://picsum.photos/seed/cake1/800/600 (picsum.photos serves Unsplash-sourced photos, free to use)",
+    "verifiedContent": "person in a scarf at sunset, seen from behind"
+  },
+  {
+    "id": "landscape-01",
+    "category": "landscape",
+    "file": "dusk1.jpg",
+    "source": "https://picsum.photos/seed/dusk1/800/600 (picsum.photos serves Unsplash-sourced photos, free to use)",
+    "verifiedContent": "Golden Gate bridge in daylight"
+  },
+  {
+    "id": "landscape-02",
+    "category": "landscape",
+    "file": "food3.jpg",
+    "source": "https://picsum.photos/seed/food3/800/600 (picsum.photos serves Unsplash-sourced photos, free to use)",
+    "verifiedContent": "mountain ridge landscape"
+  },
+  {
+    "id": "landscape-03",
+    "category": "landscape",
+    "file": "portrait1.jpg",
+    "source": "https://picsum.photos/seed/portrait1/800/600 (picsum.photos serves Unsplash-sourced photos, free to use)",
+    "verifiedContent": "beach with waves, Golden Gate in the distance"
+  },
+  {
+    "id": "food-01",
+    "category": "food",
+    "file": "dog1.jpg",
+    "source": "https://picsum.photos/seed/dog1/800/600 (picsum.photos serves Unsplash-sourced photos, free to use)",
+    "verifiedContent": "raspberries on a wooden ledge in warm light"
+  },
+  {
+    "id": "food-02",
+    "category": "food",
+    "file": "food-pizza.jpg",
+    "source": "Generated with Muse image generation for this test set (real photos were unavailable: Wikimedia and Flickr block this machine\u2019s network range).",
+    "verifiedContent": "pizza slice on a plate"
+  },
+  {
+    "id": "food-03",
+    "category": "food",
+    "file": "food-burger.jpg",
+    "source": "Generated with Muse image generation for this test set (real photos were unavailable: Wikimedia and Flickr block this machine\u2019s network range).",
+    "verifiedContent": "cheeseburger with fries on a cafe table"
+  },
+  {
+    "id": "pet-01",
+    "category": "pet",
+    "file": "coffee1.jpg",
+    "source": "https://picsum.photos/seed/coffee1/800/600 (picsum.photos serves Unsplash-sourced photos, free to use)",
+    "verifiedContent": "birds flying in a teal sky"
+  },
+  {
+    "id": "pet-02",
+    "category": "pet",
+    "file": "fruit1.jpg",
+    "source": "https://picsum.photos/seed/fruit1/800/600 (picsum.photos serves Unsplash-sourced photos, free to use)",
+    "verifiedContent": "seagull standing on a rail by the sea"
+  },
+  {
+    "id": "pet-03",
+    "category": "pet",
+    "file": "parrot1.jpg",
+    "source": "https://picsum.photos/seed/parrot1/800/600 (picsum.photos serves Unsplash-sourced photos, free to use)",
+    "verifiedContent": "two brown dogs sniffing grass"
+  },
+  {
+    "id": "low-light-01",
+    "category": "low-light",
+    "file": "night2.jpg",
+    "source": "https://picsum.photos/seed/night2/800/600 (picsum.photos serves Unsplash-sourced photos, free to use)",
+    "verifiedContent": "Milky Way night sky with a silhouetted figure"
+  },
+  {
+    "id": "low-light-02",
+    "category": "low-light",
+    "file": "office1.jpg",
+    "source": "https://picsum.photos/seed/office1/800/600 (picsum.photos serves Unsplash-sourced photos, free to use)",
+    "verifiedContent": "dark forest with a car in god rays"
+  },
+  {
+    "id": "low-light-03",
+    "category": "low-light",
+    "file": "pizza1.jpg",
+    "source": "https://picsum.photos/seed/pizza1/800/600 (picsum.photos serves Unsplash-sourced photos, free to use)",
+    "verifiedContent": "alley lit by string lights at night"
+  },
+  {
+    "id": "sunset-01",
+    "category": "sunset",
+    "file": "bird1.jpg",
+    "source": "https://picsum.photos/seed/bird1/800/600 (picsum.photos serves Unsplash-sourced photos, free to use)",
+    "verifiedContent": "skatepark at sunset, sun low"
+  },
+  {
+    "id": "sunset-02",
+    "category": "sunset",
+    "file": "cat1.jpg",
+    "source": "https://picsum.photos/seed/cat1/800/600 (picsum.photos serves Unsplash-sourced photos, free to use)",
+    "verifiedContent": "harbour crane at dusk, pink sky"
+  },
+  {
+    "id": "sunset-03",
+    "category": "sunset",
+    "file": "portrait2.jpg",
+    "source": "https://picsum.photos/seed/portrait2/800/600 (picsum.photos serves Unsplash-sourced photos, free to use)",
+    "verifiedContent": "hands making a heart shape around the setting sun"
+  },
+  {
+    "id": "backlit-01",
+    "category": "backlit",
+    "file": "beach1.jpg",
+    "source": "https://picsum.photos/seed/beach1/800/600 (picsum.photos serves Unsplash-sourced photos, free to use)",
+    "verifiedContent": "sunlit grass field with lens flare"
+  },
+  {
+    "id": "backlit-02",
+    "category": "backlit",
+    "file": "lake1.jpg",
+    "source": "https://picsum.photos/seed/lake1/800/600 (picsum.photos serves Unsplash-sourced photos, free to use)",
+    "verifiedContent": "woman in a sunlit field, strong backlight"
+  },
+  {
+    "id": "backlit-03",
+    "category": "backlit",
+    "file": "field1.jpg",
+    "source": "https://picsum.photos/seed/field1/800/600 (picsum.photos serves Unsplash-sourced photos, free to use)",
+    "verifiedContent": "Paris cityscape with bright sun glare"
+  },
+  {
+    "id": "flat-daylight-01",
+    "category": "flat-daylight",
+    "file": "cat2.jpg",
+    "source": "https://picsum.photos/seed/cat2/800/600 (picsum.photos serves Unsplash-sourced photos, free to use)",
+    "verifiedContent": "old rusty truck in a field, overcast"
+  },
+  {
+    "id": "flat-daylight-02",
+    "category": "flat-daylight",
+    "file": "food1.jpg",
+    "source": "https://picsum.photos/seed/food1/800/600 (picsum.photos serves Unsplash-sourced photos, free to use)",
+    "verifiedContent": "misty beach, muted tones"
+  },
+  {
+    "id": "flat-daylight-03",
+    "category": "flat-daylight",
+    "file": "garden1.jpg",
+    "source": "https://picsum.photos/seed/garden1/800/600 (picsum.photos serves Unsplash-sourced photos, free to use)",
+    "verifiedContent": "red tricycle against a wall, bright daylight"
+  }
+]
