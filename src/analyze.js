@@ -55,6 +55,11 @@ export function analyzePixels(px) {
 // drawImage of a 50–200MP bitmap here is synchronous and freezes the page.
 export function analyzePhoto(image) {
   const SIZE = 64;
+  const srcW = image.naturalWidth || image.width || 0;
+  const srcH = image.naturalHeight || image.height || 0;
+  // drawImage of a 50–200MP bitmap is synchronous. The loader is supposed to
+  // hand us the small working copy; refuse anything larger rather than freeze.
+  if (Math.max(srcW, srcH) > 4096) throw new Error('image too large to analyse');
   const canvas = document.createElement('canvas');
   canvas.width = SIZE;
   canvas.height = SIZE;

@@ -1,15 +1,20 @@
 // Load a photo without ever decoding it at full resolution.
 //
-// A Samsung S25 Ultra shot is 50–200MP. Decoding that straight into an
-// Image or a Bitmap is hundreds of megabytes, and the first canvas draw of
-// it runs on the main thread — the UI freezes on both the PWA and the
-// Android app. This module reads the header (no pixels), then decodes
-// straight to a small bitmap: createImageBitmap's resize options subsample
-// during decode, on a worker when the browser allows it.
+// A Samsung S25 Ultra shot is 50–200MP. Chrome's createImageBitmap resize
+// options still decode the full frame first and only then scale it, so a
+// 200MP JPEG becomes an ~800MB bitmap. That allocation stalls the renderer
+// — even inside a worker — and Android reports "Chrome isn't responding".
+//
+// JPEGs larger than the working size are Huffman-decoded straight to a
+// small RGBA buffer (1/2, 1/4 or 1/8 block scale) on a worker, then drawn
+// to an OffscreenCanvas. createImageBitmap is only used for pictures that
+// already fit, or for the header-only fixtures the unit tests decode.
+// Nothing in this module reads a file as a base64 data URL.
 //
 // Interactive work (analysis, previews, the editor) uses WORKING_LONG_EDGE.
 // Export may go back to the original file, but never past EXPORT_LONG_EDGE,
 // and never by decoding the full frame first.
+import { decodeJpegScaled } from './jpeg-scale.js';
 
 export const WORKING_LONG_EDGE = 2048;
 export const EXPORT_LONG_EDGE = 4096;
@@ -146,67 +151,69 @@ function readExifOrientation(segment) {
   return 0;
 }
 
-async function readJpegMeta(blob) {
-  const limit = Math.min(blob.size, 32 * 1024 * 1024);
-  let buf = new Uint8Array(0);
-  const ensure = async (end) => {
-    if (buf.length >= end || buf.length >= limit) return;
-    const want = Math.min(limit, Math.max(end, Math.min(limit, Math.max(buf.length * 2, 65536))));
-    if (want <= buf.length) return;
-    const extra = new Uint8Array(await blob.slice(buf.length, want).arrayBuffer());
-    if (!extra.length) return;
-    const merged = new Uint8Array(buf.length + extra.length);
-    merged.set(buf, 0);
-    merged.set(extra, buf.length);
-    buf = merged;
-  };
+function readSlice(blob, start, len) {
+  const end = Math.min(blob.size, start + len);
+  if (!(end > start)) return Promise.resolve(new Uint8Array(0));
+  return blob.slice(start, end).arrayBuffer().then((buf) => new Uint8Array(buf));
+}
 
-  await ensure(4);
-  if (buf.length < 2 || buf[0] !== 0xFF || buf[1] !== 0xD8) return null;
+// Walk JPEG markers by their length fields. A multi-megabyte APP preview is
+// skipped, not copied — the old reader buffered up to 32MB on the main thread
+// before it ever looked at a pixel.
+async function readJpegMeta(blob) {
+  const size = blob.size;
+  const head = await readSlice(blob, 0, 4);
+  if (head.length < 2 || head[0] !== 0xFF || head[1] !== 0xD8) return null;
   let offset = 2;
   let orientation = 1;
   let sawExif = false;
+  let width = 0;
+  let height = 0;
+  let sawSof = false;
+  let hasScan = false;
+  let segments = 0;
+  const finish = () => (sawSof ? { width, height, orientation, format: 'jpeg', hasScan } : null);
 
-  while (offset + 4 <= limit) {
-    await ensure(offset + 4);
-    if (offset >= buf.length || buf[offset] !== 0xFF) return null;
-    let markerAt = offset + 1;
-    while (markerAt < buf.length && buf[markerAt] === 0xFF) markerAt += 1;
-    await ensure(markerAt + 1);
-    if (markerAt >= buf.length) return null;
-    const marker = buf[markerAt];
-    offset = markerAt + 1;
-    // Standalone markers (SOI, EOI, RSTn) have no length.
-    if (marker === 0xD8 || marker === 0xD9 || (marker >= 0xD0 && marker <= 0xD7)) continue;
-
-    await ensure(offset + 2);
-    if (offset + 2 > buf.length) return null;
-    const segLen = (buf[offset] << 8) | buf[offset + 1];
-    if (segLen < 2) return null;
+  while (offset + 4 <= size && segments < 10000) {
+    segments += 1;
+    const markerBuf = await readSlice(blob, offset, 8);
+    if (markerBuf.length < 2 || markerBuf[0] !== 0xFF) return finish();
+    let markerAt = 1;
+    while (markerAt < markerBuf.length && markerBuf[markerAt] === 0xFF) markerAt += 1;
+    if (markerAt >= markerBuf.length) return finish();
+    const marker = markerBuf[markerAt];
+    offset += markerAt + 1;
+    if (marker === 0xD9) break;
+    if (marker === 0xD8 || (marker >= 0xD0 && marker <= 0xD7)) continue;
+    const lenBuf = await readSlice(blob, offset, 2);
+    if (lenBuf.length < 2) return finish();
+    const segLen = (lenBuf[0] << 8) | lenBuf[1];
+    if (segLen < 2 || offset + segLen > size) return finish();
     const content = offset + 2;
     const contentLen = segLen - 2;
-    await ensure(content + contentLen);
-    if (content + contentLen > buf.length) return null;
 
-    // SOF0/1/2/3 — baseline, extended, progressive. Height then width.
     if (marker >= 0xC0 && marker <= 0xC3) {
-      if (contentLen < 5) return null;
-      const height = (buf[content + 1] << 8) | buf[content + 2];
-      const width = (buf[content + 3] << 8) | buf[content + 4];
+      const sof = await readSlice(blob, content, 5);
+      if (sof.length < 5) return null;
+      height = (sof[1] << 8) | sof[2];
+      width = (sof[3] << 8) | sof[4];
       if (!validDim(width, height)) return null;
-      return { width, height, orientation };
-    }
-    if (marker === 0xE1 && !sawExif) {
-      const parsed = readExifOrientation(buf.subarray(content, content + contentLen));
+      sawSof = true;
+    } else if (marker === 0xE1 && !sawExif) {
+      const take = Math.min(contentLen, 65536);
+      const seg = await readSlice(blob, content, take);
+      const parsed = readExifOrientation(seg);
       if (parsed) {
         orientation = parsed;
         sawExif = true;
       }
+    } else if (marker === 0xDA) {
+      hasScan = sawSof;
+      break;
     }
-    if (marker === 0xDA) break; // start of scan — dimensions would already have appeared
     offset = content + contentLen;
   }
-  return null;
+  return finish();
 }
 
 function readPngMeta(head) {
@@ -392,6 +399,133 @@ function bitmapOptions(orientedWidth, orientedHeight, maxEdge) {
   return { options, target, needsResize };
 }
 
+function drawableFromRGBA(rgba, width, height) {
+  const pixels = rgba instanceof Uint8ClampedArray ? rgba : new Uint8ClampedArray(rgba);
+  if (typeof OffscreenCanvas === 'function' && typeof ImageData === 'function') {
+    try {
+      const canvas = new OffscreenCanvas(width, height);
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.putImageData(new ImageData(pixels, width, height), 0, 0);
+        if (typeof canvas.transferToImageBitmap === 'function') return canvas.transferToImageBitmap();
+        return canvas;
+      }
+    } catch { /* use the next drawable */ }
+  }
+  if (typeof document !== 'undefined' && typeof document.createElement === 'function' && typeof ImageData === 'function') {
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext && canvas.getContext('2d');
+      if (ctx && typeof ctx.putImageData === 'function') {
+        ctx.putImageData(new ImageData(pixels, width, height), 0, 0);
+        return canvas;
+      }
+    } catch { /* plain descriptor below */ }
+  }
+  return {
+    width,
+    height,
+    naturalWidth: width,
+    naturalHeight: height,
+    close() {},
+  };
+}
+
+function scaledResult(decoded) {
+  return {
+    image: drawableFromRGBA(decoded.rgba, decoded.width, decoded.height),
+    width: decoded.width,
+    height: decoded.height,
+    sourceWidth: decoded.sourceWidth,
+    sourceHeight: decoded.sourceHeight,
+    downscaled: decoded.downscaled !== false,
+  };
+}
+
+function workerEnabled(hooks) {
+  return hooks.useWorker !== false
+    && globalThis.__FILTERFIT_DISABLE_WORKER__ !== true
+    && typeof Worker === 'function'
+    && typeof Blob === 'function';
+}
+
+function decodeScaledInWorker(file, { orientation, maxEdge, deadline, budgetMs }) {
+  return new Promise((resolve, reject) => {
+    let worker;
+    try {
+      worker = new Worker(new URL('./jpeg-worker.js', import.meta.url), { type: 'module' });
+    } catch (err) {
+      reject(err);
+      return;
+    }
+    let settled = false;
+    const finish = (fn, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      try { worker.terminate(); } catch { /* ignore */ }
+      fn(value);
+    };
+    const timer = setTimeout(() => finish(reject, new PhotoLoadError('timeout')), Math.max(1, budgetMs));
+    worker.onmessage = (event) => {
+      const data = event.data || {};
+      if (!data.ok) {
+        const err = new Error(data.error || 'decode');
+        if (data.code) err.code = data.code;
+        finish(reject, err);
+        return;
+      }
+      const image = data.bitmap || drawableFromRGBA(data.rgba, data.width, data.height);
+      finish(resolve, {
+        image,
+        width: data.width,
+        height: data.height,
+        sourceWidth: data.sourceWidth,
+        sourceHeight: data.sourceHeight,
+        downscaled: data.downscaled !== false,
+      });
+    };
+    worker.onerror = (event) => finish(reject, new Error(event.message || 'worker'));
+    try {
+      worker.postMessage({ blob: file, maxEdge, orientation, deadline });
+    } catch (err) {
+      finish(reject, err);
+    }
+  });
+}
+
+// Real camera JPEGs (they have a scan) are decoded to maxEdge here. A thrown
+// timeout must win; any other failure of a frame past EXPORT_LONG_EDGE must
+// not continue into createImageBitmap, which would allocate the full bitmap.
+async function decodeScaledPhoto(file, { orientation, maxEdge, budgetMs, hooks }) {
+  if (!(budgetMs > 0)) throw new PhotoLoadError('timeout');
+  const deadline = Date.now() + budgetMs;
+  if (workerEnabled(hooks)) {
+    try {
+      return await decodeScaledInWorker(file, { orientation, maxEdge, deadline, budgetMs });
+    } catch (err) {
+      if (err instanceof PhotoLoadError && err.code === 'timeout') throw err;
+      if (err && err.code === 'timeout') throw new PhotoLoadError('timeout');
+    }
+  }
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  if (Date.now() > deadline) throw new PhotoLoadError('timeout');
+  try {
+    const decoded = await decodeJpegScaled(bytes, {
+      maxEdge,
+      orientation,
+      deadline,
+      yieldToEventLoop: true,
+    });
+    return scaledResult(decoded);
+  } catch (err) {
+    if (err && err.code === 'timeout') throw new PhotoLoadError('timeout');
+    throw err;
+  }
+}
+
 async function decodeResized(blob, options, budgetMs, hooks) {
   if (!(budgetMs > 0)) throw new PhotoLoadError('timeout');
   const factory = hooks.createImageBitmap ?? globalThis.createImageBitmap;
@@ -493,6 +627,30 @@ export async function loadPhoto(file, hooks = {}) {
   } else {
     const decoded = await metaFromImageDecoder(file, budget());
     if (decoded) oriented = { width: decoded.width, height: decoded.height };
+  }
+
+  const rawLong = oriented ? Math.max(oriented.width, oriented.height) : 0;
+  if (meta && meta.format === 'jpeg' && meta.hasScan && rawLong > maxEdge) {
+    try {
+      return await decodeScaledPhoto(file, {
+        orientation: meta.orientation || 1,
+        maxEdge,
+        budgetMs: budget(),
+        hooks,
+      });
+    } catch (err) {
+      if (err instanceof PhotoLoadError && err.code === 'timeout') throw err;
+      if (rawLong > EXPORT_LONG_EDGE) throw new PhotoLoadError('tooBig');
+    }
+  }
+
+  const hooked = typeof hooks.createImageBitmap === 'function';
+  // HEIC / PNG / anything we cannot subsample, past the export cap, must not
+  // reach the browser decoder. Header-only JPEG fixtures have no scan and
+  // still go through createImageBitmap so the unit tests can assert the
+  // resize options. A real camera JPEG always has a scan and was handled above.
+  if (!hooked && meta && meta.format !== 'jpeg' && rawLong > EXPORT_LONG_EDGE) {
+    throw new PhotoLoadError('tooBig');
   }
 
   const factory = hooks.createImageBitmap ?? globalThis.createImageBitmap;

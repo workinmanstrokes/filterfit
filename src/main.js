@@ -4,7 +4,7 @@
 import { FILTERS, getFilter, renderPreview, renderFilteredAsync } from './filters.js';
 import { analyzePhoto, recommendFilters, explainPick } from './analyze.js';
 import { runDiagnostics, createSliderLagTracker } from './perf.js';
-import { loadPhoto, releaseImage, EXPORT_LONG_EDGE, WORKING_LONG_EDGE, cameraGetPhotoOptions, PhotoLoadError } from './photo.js';
+import { loadPhoto, releaseImage, EXPORT_LONG_EDGE, WORKING_LONG_EDGE, cameraGetPhotoOptions, PhotoLoadError, fitLongEdge } from './photo.js';
 import { Camera, CameraResultType, CameraSource } from '@capacitor/camera';
 import { Capacitor } from '@capacitor/core';
 
@@ -43,32 +43,60 @@ function loadJSON(key) {
   try { return JSON.parse(localStorage.getItem(key)) || []; } catch { return []; }
 }
 function saveJSON(key, value) {
-  try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* storage full / private mode */ }
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+    return true;
+  } catch {
+    return false;
+  }
 }
 function loadHistory() { return loadJSON(HISTORY_KEY); }
 function loadPresets() { return loadJSON(PRESETS_KEY); }
 
-// Downscaled copies of the current photo for history: a 160 px thumbnail
-// for the recents strip and a 1024 px copy so a recent can be reopened.
-function makeStoredCopies(image) {
-  const out = {};
-  for (const [key, max] of [['thumb', 160], ['image', 1024]]) {
-    const w0 = image.naturalWidth || image.width;
-    const h0 = image.naturalHeight || image.height;
-    const s = Math.min(1, max / Math.max(w0, h0));
-    const c = document.createElement('canvas');
-    c.width = Math.max(1, Math.round(w0 * s));
-    c.height = Math.max(1, Math.round(h0 * s));
-    c.getContext('2d').drawImage(image, 0, 0, c.width, c.height);
-    out[key] = c.toDataURL('image/jpeg', 0.8);
+// History stores JPEG thumbnails only: 160px in the recents strip and 512px
+// to reopen. A full working image (and never the camera original) would blow
+// the localStorage quota and jank the main thread on the way into it.
+const HISTORY_THUMB_EDGE = 160;
+const HISTORY_REOPEN_EDGE = 512;
+
+function canvasToJpeg(image, maxEdge, quality) {
+  const w0 = image.naturalWidth || image.width || 1;
+  const h0 = image.naturalHeight || image.height || 1;
+  const fitted = fitLongEdge(w0, h0, maxEdge);
+  const c = document.createElement('canvas');
+  c.width = fitted.width;
+  c.height = fitted.height;
+  const ctx = c.getContext('2d');
+  if (!ctx) return '';
+  ctx.drawImage(image, 0, 0, c.width, c.height);
+  try {
+    const url = c.toDataURL('image/jpeg', quality);
+    if (!url || url.length > 180000) return '';
+    return url;
+  } catch {
+    return '';
   }
-  return out;
+}
+
+function makeStoredCopies(image) {
+  return {
+    thumb: canvasToJpeg(image, HISTORY_THUMB_EDGE, 0.72),
+    image: canvasToJpeg(image, HISTORY_REOPEN_EDGE, 0.74),
+  };
 }
 
 function saveToHistory(entry) {
   const history = loadHistory();
   history.unshift(entry);
-  saveJSON(HISTORY_KEY, history.slice(0, MAX_HISTORY_WITH_IMAGE));
+  let kept = history.slice(0, MAX_HISTORY_WITH_IMAGE);
+  while (kept.length && !saveJSON(HISTORY_KEY, kept)) {
+    const oldest = kept[kept.length - 1];
+    if (oldest && oldest.image) {
+      oldest.image = '';
+      if (saveJSON(HISTORY_KEY, kept)) return;
+    }
+    kept = kept.slice(0, -1);
+  }
 }
 
 // ---------- Recents strip ----------
@@ -201,6 +229,13 @@ function clearPhotoError() {
   showPhotoError('');
 }
 
+function setAnalyseStatus(title, detail) {
+  const titleEl = $('analyseTitle');
+  const detailEl = $('analyseStatus');
+  if (titleEl && title) titleEl.textContent = title;
+  if (detailEl && detail) detailEl.textContent = detail;
+}
+
 function syncLargePhotoNote() {
   const huge = Math.max(state.sourceWidth || 0, state.sourceHeight || 0) > EXPORT_LONG_EDGE;
   for (const id of ['largePhotoNote', 'largePhotoNoteEditor']) {
@@ -225,6 +260,7 @@ async function handleFile(file) {
   clearPhotoError();
   state.imageName = file.name || 'photo';
   state.reopenedFromHistory = false;
+  setAnalyseStatus('Opening your photo…', 'Preparing a smaller copy so the phone stays responsive.');
   showScreen('analysing');
   // Paint the analysing screen before any decode work starts.
   await nextPaint();
@@ -250,6 +286,7 @@ async function handleFile(file) {
 }
 
 function runAnalysis() {
+  setAnalyseStatus('Finding your filter…', 'Brightness, colour and warmth — measured on this device.');
   showScreen('analysing');
   // Let the analysing screen paint before the (fast) synchronous analysis.
   setTimeout(() => {
@@ -432,26 +469,25 @@ $('dropZone').addEventListener('click', async () => {
   const r = await pickPhotoNative(CameraSource.Photos);
   if (r === 'unavailable') $('fileInput').click();
 });
-$('fileInput').addEventListener('change', (e) => {
-  const input = e.target;
+function onPhotoChosen(event) {
+  const input = event.target;
   const file = input.files && input.files[0];
   // Allow picking the same file again next time.
   input.value = '';
   handleFile(file);
-});
+}
+// Web / Chrome: a real file, never a base64 camera result. The camera input
+// keeps capture="environment" so Android opens the camera; removing it in
+// the same turn races the picker and drops the photo back onto the main thread.
+$('fileInput').addEventListener('change', onPhotoChosen);
+$('cameraInput').addEventListener('change', onPhotoChosen);
 $('libraryBtn').addEventListener('click', async () => {
   const r = await pickPhotoNative(CameraSource.Photos);
   if (r === 'unavailable') $('fileInput').click();
 });
 $('cameraBtn').addEventListener('click', async () => {
   const r = await pickPhotoNative(CameraSource.Camera);
-  if (r === 'unavailable') {
-    // Web fallback: the file input with capture opens the camera.
-    const input = $('fileInput');
-    input.setAttribute('capture', 'environment');
-    input.click();
-    input.removeAttribute('capture');
-  }
+  if (r === 'unavailable') $('cameraInput').click();
 });
 $('historyBtn').addEventListener('click', () => { showScreen('home'); renderHistory(); });
 

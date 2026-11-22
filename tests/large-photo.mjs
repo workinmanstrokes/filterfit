@@ -13,6 +13,12 @@
 import { analyzePixels, recommendFilters } from '../src/analyze.js';
 import { renderFiltered, renderFilteredAsync, renderPreview, outputSize } from '../src/filters.js';
 import { FILTERS } from '../src/filters.js';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
+import jpeg from 'jpeg-js';
+import { decodeJpegScaled } from '../src/jpeg-scale.js';
+import { makeBlockJpeg } from './make-jpeg.mjs';
 import {
   loadPhoto,
   readImageMeta,
@@ -23,6 +29,8 @@ import {
   EXPORT_LONG_EDGE,
   cameraGetPhotoOptions,
 } from '../src/photo.js';
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
 
 const failures = [];
 function check(name, cond, extra = '') {
@@ -278,6 +286,79 @@ check(
   'chunked export of a 12MP frame finishes and keeps its size',
   asyncCanvas.width === 3000 && asyncCanvas.height === 2000 && performance.now() - asyncStarted < 3000,
   `${asyncCanvas.width}x${asyncCanvas.height}`,
+);
+
+// ---------- Real pixels: a generated 12000×9000 JPEG, not a header fixture ----------
+const beach = readFileSync(path.join(HERE, 'photos', 'beach1.jpg'));
+const beachRef = jpeg.decode(beach, { useTArray: true, formatAsRGBA: true });
+const beachMine = await decodeJpegScaled(beach, { maxEdge: 4096, yieldToEventLoop: false });
+let beachErr = 0;
+let beachN = 0;
+for (let y = 0; y < beachRef.height; y += 4) {
+  for (let x = 0; x < beachRef.width; x += 4) {
+    const i = (y * beachRef.width + x) * 4;
+    const j = (y * beachMine.width + x) * 4;
+    beachErr += Math.abs(beachRef.data[i] - beachMine.rgba[j]);
+    beachErr += Math.abs(beachRef.data[i + 1] - beachMine.rgba[j + 1]);
+    beachErr += Math.abs(beachRef.data[i + 2] - beachMine.rgba[j + 2]);
+    beachN += 3;
+  }
+}
+check(
+  'real photo matches a known decoder',
+  beachMine.width === beachRef.width && beachMine.height === beachRef.height && beachErr / beachN < 2,
+  `mean ${ (beachErr / beachN).toFixed(2) }`,
+);
+
+const bigJpeg = makeBlockJpeg(12000, 9000, { padBytes: 1024 * 1024 });
+const bigFile = new File([bigJpeg], 'camera-12000x9000.jpg', { type: 'image/jpeg' });
+const bigMetaStarted = performance.now();
+const bigHeapBefore = process.memoryUsage().heapUsed;
+const bigMeta = await readImageMeta(bigFile);
+const bigMetaHeap = process.memoryUsage().heapUsed - bigHeapBefore;
+check(
+  '12000x9000 header reports a scan without buffering the pad',
+  bigMeta && bigMeta.hasScan && bigMeta.width === 12000 && bigMeta.height === 9000
+    && performance.now() - bigMetaStarted < 1500
+    && bigMetaHeap < 8 * 1024 * 1024,
+  `${bigMeta && bigMeta.width}x${bigMeta && bigMeta.height} in ${(performance.now() - bigMetaStarted).toFixed(0)}ms, heap ${Math.round(bigMetaHeap / 1048576)}MB, file ${Math.round(bigJpeg.length / 1048576)}MB`,
+);
+
+let bitmapCalls = 0;
+const bigStarted = performance.now();
+const bigHeap0 = process.memoryUsage().heapUsed;
+const bigLoaded = await loadPhoto(bigFile, {
+  useWorker: true,
+  createImageBitmap() {
+    bitmapCalls += 1;
+    throw new Error('full-frame createImageBitmap');
+  },
+});
+const bigHeap = process.memoryUsage().heapUsed - bigHeap0;
+const bigLong = Math.max(bigLoaded.width, bigLoaded.height);
+check(
+  '12000x9000 file input path never calls createImageBitmap',
+  bitmapCalls === 0 && bigLong <= WORKING_LONG_EDGE && bigLong >= 1400,
+  `${bigLoaded.width}x${bigLoaded.height}, bitmap calls ${bitmapCalls}`,
+);
+check(
+  '12000x9000 decode stays small and fast',
+  bigLoaded.sourceWidth === 12000 && bigLoaded.sourceHeight === 9000
+    && bigLoaded.downscaled === true
+    && performance.now() - bigStarted < 8000
+    && bigHeap < 64 * 1024 * 1024,
+  `${(performance.now() - bigStarted).toFixed(0)}ms, heap ${Math.round(bigHeap / 1048576)}MB`,
+);
+
+const turned = makeBlockJpeg(2400, 1600, { orientation: 6 });
+const turnedLoaded = await loadPhoto(new File([turned], 'turned.jpg', { type: 'image/jpeg' }), {
+  useWorker: false,
+  createImageBitmap() { throw new Error('no'); },
+});
+check(
+  'EXIF orientation 6 is applied to the working copy',
+  turnedLoaded.sourceWidth === 1600 && turnedLoaded.sourceHeight === 2400 && turnedLoaded.height >= turnedLoaded.width,
+  `${turnedLoaded.sourceWidth}x${turnedLoaded.sourceHeight} image ${turnedLoaded.width}x${turnedLoaded.height}`,
 );
 
 // ---------- Capture path in src/main.js ----------
