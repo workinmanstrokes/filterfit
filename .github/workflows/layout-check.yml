@@ -1,0 +1,72 @@
+# FilterFit — phone layout check.
+#
+# Builds the app and opens it in a mobile Chromium at Galaxy S25 Ultra size
+# (412x915 portrait and 915x412 landscape) and a small phone (360x780). Fails
+# if any screen is wider than the phone or has to zoom out to fit. On pull
+# requests it also screenshots the base branch, so the artifact holds a
+# before/after set for every screen.
+name: Phone layout check
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  layout:
+    # Playwright 1.56 has no Chromium build for ubuntu-latest (26.04) yet.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright (not a project dependency)
+        run: |
+          npm install --no-save playwright@1.56.1
+          npx playwright install --with-deps chromium
+
+      - name: Build web app
+        run: npm run build
+
+      - name: Screenshot the base branch (before)
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        run: |
+          git worktree add ../base "origin/${{ github.base_ref }}"
+          (cd ../base && npm ci && npm run build)
+          (cd ../base && npx vite preview --port 4174 --strictPort > /dev/null 2>&1 &)
+          for i in $(seq 30); do curl -sf http://localhost:4174/ > /dev/null && break; sleep 2; done
+          node tests/layout-check.mjs http://localhost:4174/ layout-shots/before --no-fail
+
+      - name: Check this build (after)
+        run: |
+          (npx vite preview --port 4173 --strictPort > /dev/null 2>&1 &)
+          for i in $(seq 30); do curl -sf http://localhost:4173/ > /dev/null && break; sleep 2; done
+          node tests/layout-check.mjs http://localhost:4173/ layout-shots/after
+
+      - name: Write summary
+        if: always()
+        run: |
+          for side in before after; do
+            if [ -f "layout-shots/$side/report.md" ]; then
+              echo "### $side" >> "$GITHUB_STEP_SUMMARY"
+              cat "layout-shots/$side/report.md" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: filterfit-phone-screenshots
+          path: layout-shots/
+          retention-days: 30
