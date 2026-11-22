@@ -53,6 +53,7 @@ jobs:
           (npx vite preview --port 4173 --strictPort > /dev/null 2>&1 &)
           for i in $(seq 30); do curl -sf http://localhost:4173/ > /dev/null && break; sleep 2; done
           node tests/layout-check.mjs http://localhost:4173/ layout-shots/after
+          node tests/responsive-photo.mjs http://localhost:4173/
 
       - name: Write summary
         if: always()
