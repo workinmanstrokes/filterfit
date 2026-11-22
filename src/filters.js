@@ -32,7 +32,9 @@ export function getFilter(id) {
 // Nothing is drawn larger than this, even for export. A 12MP photo
 // (~4000px) still exports at full size. A 50–200MP frame cannot allocate
 // a full-frame canvas if a downscale was skipped.
-export const MAX_RENDER_EDGE = 4096;
+export const MAX_RENDER_EDGE = 1600;
+export const PREVIEW_LONG_EDGE = 1600;
+export const THUMB_LONG_EDGE = 256;
 
 export function outputSize(image, opts = {}) {
   const w0 = image.naturalWidth || image.width || 1;
@@ -138,7 +140,71 @@ export async function renderFilteredAsync(canvas, image, filter, intensity = 1, 
   return canvas;
 }
 
-// Live preview: same pipeline as export, capped at 1024 px on the long side.
-export function renderPreview(canvas, image, filter, intensity = 1, tune = {}) {
-  return renderFiltered(canvas, image, filter, intensity, tune, { maxSize: 1024 });
+// CSS approximation of the pixel filter, used for the live view and the
+// 256px thumbnails. The pixel loop stays on the export path, capped at
+// MAX_RENDER_EDGE, and is never run once per filter on the main thread.
+export function previewFilterCss(filter, tune = {}) {
+  const parts = [];
+  if (filter && filter.css && filter.css !== 'none') parts.push(filter.css);
+  const brightness = Number(tune.brightness) || 0;
+  const contrast = Number(tune.contrast) || 0;
+  const saturation = Number(tune.saturation) || 0;
+  const warmth = Number(tune.warmth) || 0;
+  if (brightness) parts.push(`brightness(${(1 + brightness / 100).toFixed(3)})`);
+  if (contrast) parts.push(`contrast(${(1 + contrast / 100).toFixed(3)})`);
+  if (saturation) parts.push(`saturate(${(1 + saturation / 100).toFixed(3)})`);
+  if (warmth > 0) parts.push(`sepia(${Math.min(1, warmth / 80).toFixed(3)})`);
+  else if (warmth < 0) parts.push(`hue-rotate(${Math.round(warmth * 0.6)}deg)`);
+  return parts.length ? parts.join(' ') : 'none';
+}
+
+function paintCss(ctx, canvas, image, filter, intensity, tune, maxSize) {
+  const { width, height } = outputSize(image, { maxSize });
+  canvas.width = width;
+  canvas.height = height;
+  ctx.clearRect(0, 0, width, height);
+  ctx.filter = 'none';
+  ctx.globalAlpha = 1;
+  const css = filter && filter.css && filter.css !== 'none' ? filter.css : 'none';
+  const blend = Math.max(0, Math.min(1, Number(intensity) || 0));
+  if (css === 'none' || blend <= 0) {
+    ctx.drawImage(image, 0, 0, width, height);
+  } else if (blend >= 0.999) {
+    ctx.filter = css;
+    ctx.drawImage(image, 0, 0, width, height);
+  } else {
+    ctx.drawImage(image, 0, 0, width, height);
+    ctx.filter = css;
+    ctx.globalAlpha = blend;
+    ctx.drawImage(image, 0, 0, width, height);
+  }
+  ctx.globalAlpha = 1;
+  ctx.filter = 'none';
+  const tuneCss = previewFilterCss(null, tune);
+  if (tuneCss !== 'none' && typeof document !== 'undefined' && document.createElement) {
+    const scratch = canvas._filterScratch || document.createElement('canvas');
+    canvas._filterScratch = scratch;
+    scratch.width = width;
+    scratch.height = height;
+    const scratchCtx = scratch.getContext('2d');
+    if (scratchCtx) {
+      scratchCtx.drawImage(canvas, 0, 0, width, height);
+      ctx.filter = tuneCss;
+      ctx.drawImage(scratch, 0, 0, width, height);
+    }
+  }
+  ctx.filter = 'none';
+  return { width, height };
+}
+
+// Live view. One or two draws, no getImageData. Long edge stays at 1600.
+export function renderPreview(canvas, image, filter, intensity = 1, tune = {}, maxSize = PREVIEW_LONG_EDGE) {
+  const ctx = canvas && canvas.getContext && canvas.getContext('2d');
+  if (!ctx || !image) return canvas;
+  paintCss(ctx, canvas, image, filter, intensity, tune, maxSize || PREVIEW_LONG_EDGE);
+  return canvas;
+}
+
+export function renderThumb(canvas, image, filter) {
+  return renderPreview(canvas, image, filter, filter ? filter.defaultIntensity : 1, {}, THUMB_LONG_EDGE);
 }

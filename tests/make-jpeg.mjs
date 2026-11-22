@@ -190,19 +190,51 @@ class BitWriter {
   }
 }
 
-function writeDc(bits, value, table, eob) {
+function writeDc(bits, value, table) {
   const { s, bits: mag } = dcBits(value);
   const h = table[s];
   bits.write(h.code, h.len);
   if (s) bits.write(mag, s);
+}
+
+function writeAcRun(bits, table, run, value) {
+  const { s, bits: mag } = dcBits(value);
+  const symbol = (run << 4) | s;
+  const h = table[symbol];
+  if (!h) throw new Error(`no AC huffman symbol ${symbol}`);
+  bits.write(h.code, h.len);
+  if (s) bits.write(mag, s);
+}
+
+function writeBlock(bits, diff, dcTable, acTable, eob, acCount) {
+  writeDc(bits, diff, dcTable);
+  for (let i = 0; i < acCount; i++) writeAcRun(bits, acTable, 0, 1);
   bits.write(eob.code, eob.len);
+}
+
+function mpfSegment(out) {
+  // Samsung-style APP2 Multi-Picture Format header. The secondary frame itself
+  // is appended after EOI; this segment only has to be a real APP2 the loader
+  // must skip instead of treating as entropy.
+  const payload = [0x4D, 0x50, 0x46, 0x00, 0x4D, 0x4D, 0x00, 0x2A];
+  while (payload.length < 256) payload.push(0);
+  out.push(0xFF, 0xE2);
+  push16(out, payload.length + 2);
+  for (const b of payload) out.push(b);
+}
+
+function blockColor(sample, width, height, x, y) {
+  const rgb = sample(Math.min(width - 1, x), Math.min(height - 1, y));
+  return rgbToYCbCr(rgb.r, rgb.g, rgb.b);
 }
 
 /**
  * @param {number} width
  * @param {number} height
- * @param {{orientation?: number, padBytes?: number, sample?: (x:number, y:number) => {r:number,g:number,b:number}}} [opts]
+ * @param {{orientation?: number, padBytes?: number, acCount?: number, sampling?: '444'|'420', mpf?: boolean, sample?: (x:number, y:number) => {r:number,g:number,b:number}}} [opts]
  * `sample` is called with the block's top-left pixel.
+ * `acCount` extra AC coefficients make the scan a realistic size instead of a
+ * flat DC-only file the decoder can skip through.
  */
 export function makeBlockJpeg(width, height, opts = {}) {
   const sample = opts.sample || ((x, y) => ({
@@ -210,9 +242,12 @@ export function makeBlockJpeg(width, height, opts = {}) {
     g: Math.round(180 * y / Math.max(1, height - 1)),
     b: 70,
   }));
+  const acCount = opts.acCount || 0;
+  const sampling420 = opts.sampling === '420';
   const out = [0xFF, 0xD8];
   appPad(out, opts.padBytes || 0);
   exifOrientation(out, opts.orientation || 1);
+  if (opts.mpf) mpfSegment(out);
   dqt(out, 0);
   dqt(out, 1);
   out.push(0xFF, 0xC0);
@@ -220,7 +255,7 @@ export function makeBlockJpeg(width, height, opts = {}) {
   out.push(8);
   push16(out, height);
   push16(out, width);
-  out.push(3, 1, 0x11, 0, 2, 0x11, 1, 3, 0x11, 1);
+  out.push(3, 1, sampling420 ? 0x22 : 0x11, 0, 2, 0x11, 1, 3, 0x11, 1);
   dht(out, 0, 0, STD.dcYCounts, STD.dcYValues);
   dht(out, 1, 0, STD.acYCounts, STD.acYValues);
   dht(out, 0, 1, STD.dcCCounts, STD.dcCValues);
@@ -233,22 +268,60 @@ export function makeBlockJpeg(width, height, opts = {}) {
   const eobY = AC_Y[0x00];
   const eobC = AC_C[0x00];
   let predY = 0; let predCb = 0; let predCr = 0;
-  const blocksX = Math.ceil(width / 8);
-  const blocksY = Math.ceil(height / 8);
-  for (let by = 0; by < blocksY; by++) {
-    for (let bx = 0; bx < blocksX; bx++) {
-      const rgb = sample(Math.min(width - 1, bx * 8), Math.min(height - 1, by * 8));
-      const ycc = rgbToYCbCr(rgb.r, rgb.g, rgb.b);
-      const y = DC_FOR_LEVEL[ycc.y];
-      const cb = DC_FOR_LEVEL[ycc.cb];
-      const cr = DC_FOR_LEVEL[ycc.cr];
-      writeDc(bits, y - predY, DC_Y, eobY);
-      writeDc(bits, cb - predCb, DC_C, eobC);
-      writeDc(bits, cr - predCr, DC_C, eobC);
-      predY = y; predCb = cb; predCr = cr;
+  const emit = (ycc) => {
+    const y = DC_FOR_LEVEL[ycc.y];
+    const cb = DC_FOR_LEVEL[ycc.cb];
+    const cr = DC_FOR_LEVEL[ycc.cr];
+    return { y, cb, cr };
+  };
+  if (!sampling420) {
+    const blocksX = Math.ceil(width / 8);
+    const blocksY = Math.ceil(height / 8);
+    for (let by = 0; by < blocksY; by++) {
+      for (let bx = 0; bx < blocksX; bx++) {
+        const ycc = emit(blockColor(sample, width, height, bx * 8, by * 8));
+        writeBlock(bits, ycc.y - predY, DC_Y, AC_Y, eobY, acCount);
+        writeBlock(bits, ycc.cb - predCb, DC_C, AC_C, eobC, acCount);
+        writeBlock(bits, ycc.cr - predCr, DC_C, AC_C, eobC, acCount);
+        predY = ycc.y; predCb = ycc.cb; predCr = ycc.cr;
+      }
+    }
+  } else {
+    const mcusX = Math.ceil(width / 16);
+    const mcusY = Math.ceil(height / 16);
+    for (let my = 0; my < mcusY; my++) {
+      for (let mx = 0; mx < mcusX; mx++) {
+        for (let j = 0; j < 2; j++) {
+          for (let i = 0; i < 2; i++) {
+            const ycc = emit(blockColor(sample, width, height, mx * 16 + i * 8, my * 16 + j * 8));
+            writeBlock(bits, ycc.y - predY, DC_Y, AC_Y, eobY, acCount);
+            predY = ycc.y;
+          }
+        }
+        const chroma = emit(blockColor(sample, width, height, mx * 16, my * 16));
+        writeBlock(bits, chroma.cb - predCb, DC_C, AC_C, eobC, acCount);
+        writeBlock(bits, chroma.cr - predCr, DC_C, AC_C, eobC, acCount);
+        predCb = chroma.cb; predCr = chroma.cr;
+      }
     }
   }
   for (const b of bits.finish()) out.push(b);
   out.push(0xFF, 0xD9);
+  if (opts.mpf) {
+    const thumb = makeBlockJpeg(160, 120, { acCount: 0, sampling: '444', orientation: 1 });
+    for (const b of thumb) out.push(b);
+  }
   return Uint8Array.from(out);
+}
+
+/** 4:2:0 camera JPEG with EXIF orientation 6 and a trailing MPF image. */
+export function makeSamsungJpeg(width, height, opts = {}) {
+  return makeBlockJpeg(width, height, {
+    orientation: 6,
+    sampling: '420',
+    mpf: true,
+    acCount: opts.acCount ?? 2,
+    padBytes: opts.padBytes ?? 48 * 1024,
+    sample: opts.sample,
+  });
 }

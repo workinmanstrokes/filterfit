@@ -43,58 +43,54 @@ const PIXEL_CAP = 9 * 1024 * 1024;
 
 export function chooseJpegScale(width, height, maxEdge) {
   const edge = Math.max(1, maxEdge | 0);
-  let fallback = 8;
+  const blocks = Math.ceil(width / 8) * Math.ceil(height / 8);
+  // A full 8×8 IDCT of a 200MP frame is millions of blocks. DC-only (1/8)
+  // is the block average and stays inside a 1600px working image.
+  if (blocks > 400000) return 8;
+  const decodeCap = Math.max(edge, Math.round(edge * 1.25));
+  let chosen = 8;
   for (const denom of [1, 2, 4, 8]) {
     const outW = Math.ceil(width / denom);
     const outH = Math.ceil(height / denom);
-    const pixels = outW * outH;
-    if (pixels > PIXEL_CAP && denom !== 8) continue;
-    const long = Math.max(outW, outH);
-    if (long <= edge) return denom;
-    if (long <= Math.ceil(edge * 1.5)) fallback = denom;
+    if (outW * outH > PIXEL_CAP && denom !== 8) continue;
+    if (Math.max(outW, outH) <= decodeCap) return denom;
+    chosen = denom;
   }
-  return fallback;
+  return chosen;
 }
 
-function buildHuffmanTable(codeLengths, values) {
+// 16-bit prefix lookup. JPEG Huffman codes are at most 16 bits, so one peek
+// resolves a symbol. The old bit-at-a-time tree walked a JS object per bit
+// and could not finish a 20MB Samsung scan without stalling the phone.
+function buildFastHuffman(codeLengths, values) {
+  const syms = new Uint8Array(65536);
+  const lens = new Uint8Array(65536);
+  let code = 0;
   let k = 0;
-  const code = [];
-  let length = 16;
-  while (length > 0 && !codeLengths[length - 1]) length -= 1;
-  code.push({ children: [], index: 0 });
-  let p = code[0];
-  for (let i = 0; i < length; i++) {
-    for (let j = 0; j < codeLengths[i]; j++) {
-      p = code.pop();
-      p.children[p.index] = values[k];
-      while (p.index > 0) {
-        if (!code.length) throw new Error('bad huffman table');
-        p = code.pop();
+  for (let len = 1; len <= 16; len++) {
+    const count = codeLengths[len - 1] || 0;
+    for (let i = 0; i < count; i++) {
+      const symbol = values[k++];
+      const shift = 16 - len;
+      const base = code << shift;
+      const n = 1 << shift;
+      for (let j = 0; j < n; j++) {
+        syms[base + j] = symbol;
+        lens[base + j] = len;
       }
-      p.index += 1;
-      code.push(p);
-      while (code.length <= i) {
-        const q = { children: [], index: 0 };
-        code.push(q);
-        p.children[p.index] = q.children;
-        p = q;
-      }
-      k += 1;
+      code += 1;
     }
-    if (i + 1 < length) {
-      const q = { children: [], index: 0 };
-      code.push(q);
-      p.children[p.index] = q.children;
-      p = q;
-    }
+    code <<= 1;
   }
-  return code[0].children;
+  return { syms, lens };
 }
 
 // Integer IDCT matching the Loeffler/poppler path used by jpeg-js, so a
 // full-resolution decode lines up with a known-good decoder.
+const idctScratch = new Int32Array(64);
+
 function idct8(zz, quant, out) {
-  const p = new Int32Array(64);
+  const p = idctScratch;
   for (let i = 0; i < 64; i++) p[i] = zz[i] * quant[i];
 
   for (let i = 0; i < 8; i++) {
@@ -393,7 +389,7 @@ function timeoutError() {
 
 export async function decodeJpegScaled(input, opts = {}) {
   const data = input instanceof Uint8Array ? input : new Uint8Array(input);
-  const maxEdge = opts.maxEdge || 2048;
+  const maxEdge = opts.maxEdge || 1600;
   const orientation = opts.orientation || 1;
   const deadline = opts.deadline || 0;
   const yieldLoop = opts.yieldToEventLoop !== false;
@@ -445,45 +441,81 @@ export async function decodeJpegScaled(input, opts = {}) {
     let bitsData = 0;
     let bitsCount = 0;
     let off = offset;
-    const readBit = () => {
-      if (bitsCount > 0) {
-        bitsCount -= 1;
-        return (bitsData >> bitsCount) & 1;
-      }
-      if (off >= data.length) throw new Error('truncated jpeg');
-      bitsData = data[off++];
-      if (bitsData === 0xFF) {
-        if (off >= data.length) throw new Error('truncated jpeg');
+    // Stream offset of each byte currently sitting in the bit window, so a
+    // restart marker that was prefetched can be pushed back without undoing
+    // a stuffed 0xFF00.
+    const byteOrigins = [];
+    const pullByte = () => {
+      if (off >= data.length || bitsCount > 24) return false;
+      byteOrigins.push(off);
+      let b = data[off++];
+      if (b === 0xFF) {
+        if (off >= data.length) {
+          off = byteOrigins.pop();
+          return false;
+        }
         const next = data[off++];
         if (next !== 0) {
-          const err = new Error('unexpected marker ' + ((bitsData << 8) | next).toString(16));
-          err.offset = off - 2;
-          throw err;
+          off = byteOrigins.pop();
+          return false;
         }
       }
-      bitsCount = 7;
-      return bitsData >>> 7;
+      bitsData = ((bitsData << 8) | b) >>> 0;
+      bitsCount += 8;
+      return true;
     };
-    const receive = (length) => {
-      let n = 0;
-      while (length > 0) {
-        n = (n << 1) | readBit();
-        length -= 1;
+    const trimOrigins = () => {
+      const held = bitsCount > 0 ? Math.ceil(bitsCount / 8) : 0;
+      if (byteOrigins.length > held) byteOrigins.splice(0, byteOrigins.length - held);
+    };
+    const dropBits = (n) => {
+      bitsCount -= n;
+      if (bitsCount <= 0) {
+        bitsCount = 0;
+        bitsData = 0;
+        byteOrigins.length = 0;
+        return;
       }
-      return n;
+      bitsData &= (0xFFFFFFFF >>> (32 - bitsCount));
+      trimOrigins();
     };
+    const ensureBits = (n) => {
+      while (bitsCount < n && pullByte()) { /* fill */ }
+    };
+    const readBits = (length) => {
+      if (length <= 0) return 0;
+      ensureBits(length);
+      if (bitsCount < length) throw new Error('truncated jpeg');
+      const value = (bitsData >>> (bitsCount - length)) & ((1 << length) - 1);
+      dropBits(length);
+      return value;
+    };
+    const readBit = () => readBits(1);
+    const receive = (length) => readBits(length);
     const receiveAndExtend = (length) => {
-      const n = receive(length);
+      const n = readBits(length);
       if (n >= (1 << (length - 1))) return n;
       return n + (-1 << length) + 1;
     };
-    const decodeHuffman = (tree) => {
-      let node = tree;
-      for (;;) {
-        node = node[readBit()];
-        if (typeof node === 'number') return node;
-        if (!node || typeof node !== 'object') throw new Error('bad huffman sequence');
+    const decodeHuffman = (table) => {
+      if (!table || !table.lens) throw new Error('missing huffman table');
+      ensureBits(16);
+      const peek = bitsCount >= 16
+        ? (bitsData >>> (bitsCount - 16)) & 0xFFFF
+        : (bitsData << (16 - bitsCount)) & 0xFFFF;
+      const len = table.lens[peek];
+      if (!len || len > bitsCount) throw new Error('bad huffman sequence');
+      dropBits(len);
+      return table.syms[peek];
+    };
+    const discardPadding = () => {
+      const extra = Math.floor(bitsCount / 8);
+      if (extra > 0 && byteOrigins.length >= extra) {
+        off = byteOrigins[byteOrigins.length - extra];
       }
+      bitsCount = 0;
+      bitsData = 0;
+      byteOrigins.length = 0;
     };
 
     const zz = new Int32Array(64);
@@ -674,23 +706,24 @@ export async function decodeJpegScaled(input, opts = {}) {
           if (mcu === mcuExpected) break;
         }
       }
-      if (sinceYield >= 2048) {
+      if (sinceYield >= 32) {
         sinceYield = 0;
         if (deadline && Date.now() > deadline) throw timeoutError();
-        if (yieldLoop && performance.now() - lastYield > 24) {
+        if (yieldLoop && performance.now() - lastYield > 12) {
           await new Promise((resolve) => { setTimeout(resolve, 0); });
           lastYield = performance.now();
           if (deadline && Date.now() > deadline) throw timeoutError();
         }
       }
       if (mcu >= mcuExpected) {
+        discardPadding();
         while (off < data.length - 1) {
           if (data[off] === 0xFF && data[off + 1] !== 0x00) break;
           off += 1;
         }
         break;
       }
-      bitsCount = 0;
+      discardPadding();
       if (off + 1 >= data.length) break;
       const marker = (data[off] << 8) | data[off + 1];
       if (marker >= 0xFFD0 && marker <= 0xFFD7) off += 2;
@@ -820,7 +853,7 @@ export async function decodeJpegScaled(input, opts = {}) {
         for (let i = 0; i < 16; i++) sum += (lens[i] = data[p++]);
         const vals = new Uint8Array(sum);
         for (let i = 0; i < sum; i++) vals[i] = data[p++];
-        const table = buildHuffmanTable(lens, vals);
+        const table = buildFastHuffman(lens, vals);
         if ((spec >> 4) === 0) dcTables[spec & 15] = table;
         else acTables[spec & 15] = table;
       }
