@@ -1,9 +1,10 @@
 // FilterFit entry point: navigation, photo import, analysis, recommendations,
 // editor wiring, full-resolution export, local history, presets, and the
 // performance diagnostics harness (behind ?perf=1).
-import { FILTERS, getFilter, renderFiltered, renderPreview } from './filters.js';
+import { FILTERS, getFilter, renderPreview, renderFilteredAsync } from './filters.js';
 import { analyzePhoto, recommendFilters, explainPick } from './analyze.js';
 import { runDiagnostics, createSliderLagTracker } from './perf.js';
+import { loadPhoto, releaseImage, EXPORT_LONG_EDGE, WORKING_LONG_EDGE, cameraGetPhotoOptions, PhotoLoadError } from './photo.js';
 import { Camera, CameraResultType, CameraSource } from '@capacitor/camera';
 import { Capacitor } from '@capacitor/core';
 
@@ -15,6 +16,11 @@ const MAX_HISTORY_WITH_IMAGE = 10;
 const state = {
   image: null,
   imageName: 'photo',
+  // Original file, when we still have it. Export re-decodes this up to
+  // EXPORT_LONG_EDGE. Null for history reopens and for the diagnostics image.
+  sourceFile: null,
+  sourceWidth: 0,
+  sourceHeight: 0,
   analysis: null,
   recommendations: [],
   selectedFilter: 'original',
@@ -22,6 +28,7 @@ const state = {
   tune: { brightness: 0, contrast: 0, warmth: 0, saturation: 0 },
   pendingPreset: null,
   reopenedFromHistory: false,
+  exporting: false,
 };
 
 const sliderLag = createSliderLagTracker();
@@ -92,10 +99,19 @@ function reopenFromHistory(index) {
   if (!entry || !entry.image) return;
   const img = new Image();
   img.onload = () => {
+    releaseImage(state.image);
     state.image = img;
     state.imageName = entry.name;
+    state.sourceFile = null;
+    state.sourceWidth = img.naturalWidth || img.width || 0;
+    state.sourceHeight = img.naturalHeight || img.height || 0;
     state.reopenedFromHistory = true;
+    syncLargePhotoNote();
     runAnalysis();
+  };
+  img.onerror = () => {
+    showPhotoError("Couldn't open that saved photo. Try another one.");
+    showScreen('home');
   };
   img.src = entry.image;
 }
@@ -164,37 +180,99 @@ function renderFilterLibrary() {
 }
 
 // ---------- Photo flow ----------
+let loadGeneration = 0;
+
+function photoErrorMessage(err) {
+  if (err instanceof PhotoLoadError && err.code === 'timeout') {
+    return 'That photo took too long to open. Try another one.';
+  }
+  if (err instanceof PhotoLoadError && err.code === 'empty') return 'Choose a photo to continue.';
+  return "Couldn't open that photo. Try another one.";
+}
+
+function showPhotoError(message) {
+  const el = $('photoError');
+  if (!el) return;
+  el.textContent = message || '';
+  el.classList.toggle('hidden', !message);
+}
+
+function clearPhotoError() {
+  showPhotoError('');
+}
+
+function syncLargePhotoNote() {
+  const huge = Math.max(state.sourceWidth || 0, state.sourceHeight || 0) > EXPORT_LONG_EDGE;
+  for (const id of ['largePhotoNote', 'largePhotoNoteEditor']) {
+    const el = $(id);
+    if (el) el.classList.toggle('hidden', !huge);
+  }
+}
+
+function nextPaint() {
+  return new Promise((resolve) => {
+    if (typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(() => requestAnimationFrame(resolve));
+    } else {
+      setTimeout(resolve, 16);
+    }
+  });
+}
+
 async function handleFile(file) {
   if (!file) return;
+  const generation = ++loadGeneration;
+  clearPhotoError();
   state.imageName = file.name || 'photo';
   state.reopenedFromHistory = false;
-  const url = URL.createObjectURL(file);
-  const img = new Image();
-  img.onload = () => {
-    state.image = img;
-    URL.revokeObjectURL(url);
+  showScreen('analysing');
+  // Paint the analysing screen before any decode work starts.
+  await nextPaint();
+  if (generation !== loadGeneration) return;
+  try {
+    const loaded = await loadPhoto(file);
+    if (generation !== loadGeneration) {
+      releaseImage(loaded.image);
+      return;
+    }
+    releaseImage(state.image);
+    state.image = loaded.image;
+    state.sourceFile = typeof file.slice === 'function' ? file : null;
+    state.sourceWidth = loaded.sourceWidth || loaded.width;
+    state.sourceHeight = loaded.sourceHeight || loaded.height;
+    syncLargePhotoNote();
     runAnalysis();
-  };
-  img.src = url;
+  } catch (err) {
+    if (generation !== loadGeneration) return;
+    showPhotoError(photoErrorMessage(err));
+    showScreen('home');
+  }
 }
 
 function runAnalysis() {
   showScreen('analysing');
   // Let the analysing screen paint before the (fast) synchronous analysis.
   setTimeout(() => {
-    state.analysis = analyzePhoto(state.image);
-    state.recommendations = recommendFilters(state.analysis, 3);
-    // The top pick opens at its filter's default intensity, not 100%.
-    state.selectedFilter = state.recommendations[0].filter.id;
-    state.intensity = getFilter(state.selectedFilter).defaultIntensity;
-    state.tune = { brightness: 0, contrast: 0, warmth: 0, saturation: 0 };
-    syncTuneInputs();
-    renderRecommendations();
-    showScreen('recommendations');
-    if (state.pendingPreset) {
-      const preset = state.pendingPreset;
-      state.pendingPreset = null;
-      applyPreset(preset);
+    try {
+      if (!state.image) throw new Error('no image');
+      state.analysis = analyzePhoto(state.image);
+      state.recommendations = recommendFilters(state.analysis, 3);
+      // The top pick opens at its filter's default intensity, not 100%.
+      state.selectedFilter = state.recommendations[0].filter.id;
+      state.intensity = getFilter(state.selectedFilter).defaultIntensity;
+      state.tune = { brightness: 0, contrast: 0, warmth: 0, saturation: 0 };
+      syncTuneInputs();
+      renderRecommendations();
+      syncLargePhotoNote();
+      showScreen('recommendations');
+      if (state.pendingPreset) {
+        const preset = state.pendingPreset;
+        state.pendingPreset = null;
+        applyPreset(preset);
+      }
+    } catch {
+      showPhotoError("Couldn't open that photo. Try another one.");
+      showScreen('home');
     }
   }, 350);
 }
@@ -307,7 +385,11 @@ function initDiagnostics() {
     btn.textContent = 'Running…';
     try {
       const image = state.image || syntheticTestImage();
-      await new Promise((resolve) => { if (image.complete) resolve(); else image.onload = resolve; });
+      // HTMLImageElement.complete is false until decode. A canvas or
+      // ImageBitmap (the downscaled working photo) is already drawable.
+      if (image && image.complete === false) {
+        await new Promise((resolve) => { image.onload = resolve; image.onerror = resolve; });
+      }
       const results = await runDiagnostics(image, getFilter(state.selectedFilter), state.intensity, state.tune);
       results.syntheticPhoto = !!image._synthetic;
       results.sliderLag = sliderLag.summary();
@@ -332,12 +414,7 @@ function initDiagnostics() {
 async function pickPhotoNative(source) {
   if (!Capacitor.isNativePlatform()) return 'unavailable';
   try {
-    const photo = await Camera.getPhoto({
-      quality: 90,
-      allowEditing: false,
-      resultType: CameraResultType.Uri,
-      source,
-    });
+    const photo = await Camera.getPhoto(cameraGetPhotoOptions(source, CameraResultType.Uri));
     if (!photo.webPath) return 'cancelled';
     const res = await fetch(photo.webPath);
     const blob = await res.blob();
@@ -355,7 +432,13 @@ $('dropZone').addEventListener('click', async () => {
   const r = await pickPhotoNative(CameraSource.Photos);
   if (r === 'unavailable') $('fileInput').click();
 });
-$('fileInput').addEventListener('change', (e) => handleFile(e.target.files[0]));
+$('fileInput').addEventListener('change', (e) => {
+  const input = e.target;
+  const file = input.files && input.files[0];
+  // Allow picking the same file again next time.
+  input.value = '';
+  handleFile(file);
+});
 $('libraryBtn').addEventListener('click', async () => {
   const r = await pickPhotoNative(CameraSource.Photos);
   if (r === 'unavailable') $('fileInput').click();
@@ -397,25 +480,72 @@ $('savePresetBtn').addEventListener('click', () => {
 
 $('backHomeBtn').addEventListener('click', () => { renderHistory(); renderPresets(); showScreen('home'); });
 
-// Export at full resolution, then share via the native share sheet.
+function setExportMsg(message) {
+  const el = $('exportMsg');
+  if (el) el.textContent = message || '';
+}
+
+// Export re-decodes the original file when we still have it, capped so a
+// 50–200MP photo cannot be rendered at full frame. The editor keeps using
+// the smaller working image.
+async function imageForExport() {
+  const edge = Math.max(state.sourceWidth || 0, state.sourceHeight || 0);
+  if (!state.sourceFile || edge <= WORKING_LONG_EDGE) return { image: state.image, release: false, shrunk: false };
+  try {
+    const loaded = await loadPhoto(state.sourceFile, { maxEdge: Math.min(edge, EXPORT_LONG_EDGE) });
+    return {
+      image: loaded.image,
+      release: true,
+      shrunk: edge > EXPORT_LONG_EDGE,
+    };
+  } catch {
+    return { image: state.image, release: false, shrunk: true };
+  }
+}
+
+// Export, then share via the native share sheet. Pixel work yields between
+// chunks so the button can show progress and the page stays responsive.
 $('exportBtn').addEventListener('click', async () => {
-  const out = document.createElement('canvas');
-  renderFiltered(out, state.image, getFilter(state.selectedFilter), state.intensity, state.tune);
-  const top = state.recommendations[0];
-  const copies = makeStoredCopies(state.image);
-  saveToHistory({
-    name: state.imageName,
-    filter: getFilter(state.selectedFilter).name,
-    score: top ? top.score : 0,
-    at: Date.now(),
-    thumb: copies.thumb,
-    image: copies.image,
-  });
-  out.toBlob(async (blob) => {
-    if (!blob) return;
+  if (state.exporting || !state.image) return;
+  state.exporting = true;
+  const btn = $('exportBtn');
+  const label = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Exporting…';
+  setExportMsg('');
+  let exportImage = state.image;
+  let releaseExport = false;
+  try {
+    const prepared = await imageForExport();
+    exportImage = prepared.image;
+    releaseExport = prepared.release;
+    const out = document.createElement('canvas');
+    await renderFilteredAsync(out, exportImage, getFilter(state.selectedFilter), state.intensity, state.tune);
+    const blob = await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('export-timeout')), 30000);
+      out.toBlob((result) => {
+        clearTimeout(timer);
+        resolve(result);
+      }, 'image/png');
+    });
+    if (!blob) throw new Error('export-empty');
+    const top = state.recommendations[0];
+    const copies = makeStoredCopies(state.image);
+    saveToHistory({
+      name: state.imageName,
+      filter: getFilter(state.selectedFilter).name,
+      score: top ? top.score : 0,
+      at: Date.now(),
+      thumb: copies.thumb,
+      image: copies.image,
+    });
     const file = new File([blob], `filterfit-${Date.now()}.png`, { type: 'image/png' });
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
-      await navigator.share({ files: [file], title: 'FilterFit' });
+      try {
+        await navigator.share({ files: [file], title: 'FilterFit' });
+      } catch (err) {
+        if (!err || err.name !== 'AbortError') setExportMsg('Could not open the share sheet. The photo is saved in Recent photos.');
+      }
     } else {
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
@@ -423,10 +553,23 @@ $('exportBtn').addEventListener('click', async () => {
       a.click();
       URL.revokeObjectURL(a.href);
     }
-  }, 'image/png');
+    if (prepared.shrunk && !$('exportMsg').textContent) {
+      setExportMsg('Exported a smaller copy — the original photo was too large.');
+    }
+  } catch {
+    setExportMsg("Couldn't export that photo. Try again.");
+  } finally {
+    if (releaseExport) releaseImage(exportImage);
+    state.exporting = false;
+    btn.disabled = false;
+    btn.textContent = label;
+  }
 });
 
 renderHistory();
 renderPresets();
 renderFilterLibrary();
+clearPhotoError();
+syncLargePhotoNote();
+setExportMsg('');
 initDiagnostics();

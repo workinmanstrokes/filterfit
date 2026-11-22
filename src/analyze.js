@@ -51,6 +51,8 @@ export function analyzePixels(px) {
   return { brightness, contrast, warmth, saturation, dominant, subject };
 }
 
+// `image` must already be the downscaled working copy (see src/photo.js).
+// drawImage of a 50–200MP bitmap here is synchronous and freezes the page.
 export function analyzePhoto(image) {
   const SIZE = 64;
   const canvas = document.createElement('canvas');

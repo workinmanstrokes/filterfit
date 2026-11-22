@@ -29,57 +29,109 @@ export function getFilter(id) {
 // plus fine-tune adjustments in the range -50..50. Intensity blends the
 // filtered result back toward the original.
 //
-// opts.maxSize caps the longest side of the rendered output (live preview):
-// a 12 MP phone photo is ~4000 px wide, and the old code ran the per-pixel
-// loops at full resolution on every slider movement. Preview at 1024 px is
-// ~15x less work per frame with no visible difference on screen. Export
-// calls this WITHOUT maxSize, so it still renders at full resolution.
+// Nothing is drawn larger than this, even for export. A 12MP photo
+// (~4000px) still exports at full size. A 50–200MP frame cannot allocate
+// a full-frame canvas if a downscale was skipped.
+export const MAX_RENDER_EDGE = 4096;
+
+export function outputSize(image, opts = {}) {
+  const w0 = image.naturalWidth || image.width || 1;
+  const h0 = image.naturalHeight || image.height || 1;
+  let cap = MAX_RENDER_EDGE;
+  if (opts.maxSize > 0) cap = Math.min(opts.maxSize, MAX_RENDER_EDGE);
+  if (Math.max(w0, h0) <= cap) return { width: w0, height: h0 };
+  const long = Math.max(w0, h0);
+  if (w0 >= h0) return { width: cap, height: Math.max(1, Math.round(h0 * (cap / long))) };
+  return { width: Math.max(1, Math.round(w0 * (cap / long))), height: cap };
+}
+
+function applyFilterPixels(px, start, end, filter, intensity) {
+  for (let i = start; i < end; i += 4) {
+    const [nr, ng, nb] = filter.apply(px[i], px[i + 1], px[i + 2]);
+    px[i] = px[i] + (nr - px[i]) * intensity;
+    px[i + 1] = px[i + 1] + (ng - px[i + 1]) * intensity;
+    px[i + 2] = px[i + 2] + (nb - px[i + 2]) * intensity;
+  }
+}
+
+function applyTunePixels(px, start, end, tune) {
+  const { brightness = 0, contrast = 0, warmth = 0, saturation = 0 } = tune;
+  const c = 1 + contrast / 100;
+  const s = 1 + saturation / 100;
+  for (let i = start; i < end; i += 4) {
+    let r = px[i], g = px[i + 1], b = px[i + 2];
+    r = (r - 128) * c + 128 + brightness + warmth;
+    g = (g - 128) * c + 128 + brightness;
+    b = (b - 128) * c + 128 + brightness - warmth;
+    const avg = (r + g + b) / 3;
+    r = avg + (r - avg) * s;
+    g = avg + (g - avg) * s;
+    b = avg + (b - avg) * s;
+    px[i] = Math.max(0, Math.min(255, r));
+    px[i + 1] = Math.max(0, Math.min(255, g));
+    px[i + 2] = Math.max(0, Math.min(255, b));
+  }
+}
+
+function paintFiltered(ctx, canvas, image, filter, intensity, tune, opts) {
+  const { width, height } = outputSize(image, opts);
+  canvas.width = width;
+  canvas.height = height;
+  ctx.clearRect(0, 0, width, height);
+  ctx.filter = 'none';
+  ctx.drawImage(image, 0, 0, width, height);
+  return { width, height };
+}
+
+// opts.maxSize caps the longest side (live preview uses 1024). Without it,
+// the result is the source size, still capped at MAX_RENDER_EDGE.
 export function renderFiltered(canvas, image, filter, intensity = 1, tune = {}, opts = {}) {
   const ctx = canvas.getContext('2d');
-  const w0 = image.naturalWidth || image.width;
-  const h0 = image.naturalHeight || image.height;
-  let w = w0, h = h0;
-  if (opts.maxSize && Math.max(w, h) > opts.maxSize) {
-    const s = opts.maxSize / Math.max(w, h);
-    w = Math.round(w * s);
-    h = Math.round(h * s);
-  }
-  canvas.width = w;
-  canvas.height = h;
-  ctx.clearRect(0, 0, w, h);
-  ctx.filter = 'none';
-  ctx.drawImage(image, 0, 0, w, h);
+  const { width, height } = paintFiltered(ctx, canvas, image, filter, intensity, tune, opts);
 
   if (filter && filter.apply && intensity > 0) {
-    const data = ctx.getImageData(0, 0, w, h);
-    const px = data.data;
-    for (let i = 0; i < px.length; i += 4) {
-      const [nr, ng, nb] = filter.apply(px[i], px[i + 1], px[i + 2]);
-      px[i] = px[i] + (nr - px[i]) * intensity;
-      px[i + 1] = px[i + 1] + (ng - px[i + 1]) * intensity;
-      px[i + 2] = px[i + 2] + (nb - px[i + 2]) * intensity;
+    const data = ctx.getImageData(0, 0, width, height);
+    applyFilterPixels(data.data, 0, data.data.length, filter, intensity);
+    ctx.putImageData(data, 0, 0);
+  }
+
+  const { brightness = 0, contrast = 0, warmth = 0, saturation = 0 } = tune;
+  if (brightness || contrast || warmth || saturation) {
+    const data = ctx.getImageData(0, 0, width, height);
+    applyTunePixels(data.data, 0, data.data.length, tune);
+    ctx.putImageData(data, 0, 0);
+  }
+  return canvas;
+}
+
+function yieldToMain() {
+  return new Promise((resolve) => { setTimeout(resolve, 0); });
+}
+
+// Same pixels as renderFiltered, but the per-pixel loops yield every few
+// rows so an export of a multi-megapixel photo cannot freeze the page.
+export async function renderFilteredAsync(canvas, image, filter, intensity = 1, tune = {}, opts = {}) {
+  await yieldToMain();
+  const ctx = canvas.getContext('2d');
+  const { width, height } = paintFiltered(ctx, canvas, image, filter, intensity, tune, opts);
+  const stride = Math.max(1, width) * 4;
+  const chunk = 128 * stride;
+
+  if (filter && filter.apply && intensity > 0) {
+    const data = ctx.getImageData(0, 0, width, height);
+    for (let start = 0; start < data.data.length; start += chunk) {
+      applyFilterPixels(data.data, start, Math.min(data.data.length, start + chunk), filter, intensity);
+      if (start + chunk < data.data.length) await yieldToMain();
     }
     ctx.putImageData(data, 0, 0);
   }
 
   const { brightness = 0, contrast = 0, warmth = 0, saturation = 0 } = tune;
   if (brightness || contrast || warmth || saturation) {
-    const data = ctx.getImageData(0, 0, w, h);
-    const px = data.data;
-    const c = 1 + contrast / 100;
-    const s = 1 + saturation / 100;
-    for (let i = 0; i < px.length; i += 4) {
-      let r = px[i], g = px[i + 1], b = px[i + 2];
-      r = (r - 128) * c + 128 + brightness + warmth;
-      g = (g - 128) * c + 128 + brightness;
-      b = (b - 128) * c + 128 + brightness - warmth;
-      const avg = (r + g + b) / 3;
-      r = avg + (r - avg) * s;
-      g = avg + (g - avg) * s;
-      b = avg + (b - avg) * s;
-      px[i] = Math.max(0, Math.min(255, r));
-      px[i + 1] = Math.max(0, Math.min(255, g));
-      px[i + 2] = Math.max(0, Math.min(255, b));
+    const data = ctx.getImageData(0, 0, width, height);
+    for (let start = 0; start < data.data.length; start += chunk) {
+      applyTunePixels(data.data, start, Math.min(data.data.length, start + chunk), tune);
+      if (start + chunk < data.data.length) await yieldToMain();
     }
     ctx.putImageData(data, 0, 0);
   }
