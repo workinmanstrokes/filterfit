@@ -90,13 +90,13 @@ const SUBSAMPLE_METHODS = `
      * Content URIs often cannot rewind, so inSampleSize is ignored on
      * decodeStream. Copy to a cache file and decodeFile instead.
      */
-    public static Bitmap decodeSampledUri(Context context, Uri uri, int reqWidth, int reqHeight) {
+    public static Bitmap decodeSampledUri(Context context, Uri uri, int reqWidth, int reqHeight) throws FileNotFoundException {
         File tmp = null;
         try {
             tmp = File.createTempFile("filterfit-cam", ".img", context.getCacheDir());
             try (InputStream in = context.getContentResolver().openInputStream(uri)) {
                 if (in == null) {
-                    return null;
+                    throw new FileNotFoundException("No such image found");
                 }
                 try (FileOutputStream out = new FileOutputStream(tmp)) {
                     byte[] buf = new byte[16384];
@@ -107,8 +107,10 @@ const SUBSAMPLE_METHODS = `
                 }
             }
             return decodeSampledFile(tmp.getAbsolutePath(), reqWidth, reqHeight);
+        } catch (FileNotFoundException ex) {
+            throw ex;
         } catch (IOException ex) {
-            return null;
+            throw new FileNotFoundException(ex.getMessage() != null ? ex.getMessage() : "No such image found");
         } finally {
             if (tmp != null) {
                 tmp.delete();
@@ -117,9 +119,54 @@ const SUBSAMPLE_METHODS = `
     }
 `;
 
+// Callers still catch FileNotFoundException. After openInputStream moved into
+// decodeSampledUri, that catch is illegal unless the helper declares the throw.
+function ensureCheckedException(utils) {
+  let next = utils;
+  let changed = false;
+  if (!next.includes('import java.io.FileNotFoundException;')) {
+    const imported = next.replace(
+      'import java.io.IOException;\n',
+      'import java.io.FileNotFoundException;\nimport java.io.IOException;\n',
+    );
+    changed = imported !== next;
+    next = imported;
+  }
+  const signature = 'public static Bitmap decodeSampledUri(Context context, Uri uri, int reqWidth, int reqHeight)';
+  if (next.includes(`${signature} {`)) {
+    next = next.replace(`${signature} {`, `${signature} throws FileNotFoundException {`);
+    next = next.replace(
+      `if (in == null) {
+                    return null;
+                }`,
+      `if (in == null) {
+                    throw new FileNotFoundException("No such image found");
+                }`,
+    );
+    next = next.replace(
+      `} catch (IOException ex) {
+            return null;
+        } finally {`,
+      `} catch (FileNotFoundException ex) {
+            throw ex;
+        } catch (IOException ex) {
+            throw new FileNotFoundException(ex.getMessage() != null ? ex.getMessage() : "No such image found");
+        } finally {`,
+    );
+    changed = true;
+  }
+  if (!next.includes(`${signature} throws FileNotFoundException`)) {
+    throw new Error('patch-capacitor-camera: decodeSampledUri must throw FileNotFoundException so the plugin still compiles.');
+  }
+  return { utils: next, changed };
+}
+
 export function patchSources(camera, utils) {
   const already = camera.includes('decodeSampledFile') && utils.includes('FILTERFIT_SUBSAMPLE');
-  if (already) return { camera, utils, changed: false };
+  if (already) {
+    const upgraded = ensureCheckedException(utils);
+    return { camera, utils: upgraded.utils, changed: upgraded.changed };
+  }
 
   let nextCamera = camera.replace(
     /BitmapFactory\.Options bmOptions = new BitmapFactory\.Options\(\);\s*Uri contentUri = Uri\.fromFile\(f\);\s*Bitmap bitmap = BitmapFactory\.decodeFile\(imageFileSavePath, bmOptions\);/,
@@ -163,7 +210,8 @@ export function patchSources(camera, utils) {
   if (!nextUtils.includes('FILTERFIT_SUBSAMPLE') || !nextUtils.includes('inJustDecodeBounds = true') || !nextUtils.includes('inScaled = false')) {
     throw new Error('patch-capacitor-camera: failed to add subsampled decoding to ImageUtils.java.');
   }
-  return { camera: nextCamera, utils: nextUtils, changed: true };
+  const upgraded = ensureCheckedException(nextUtils);
+  return { camera: nextCamera, utils: upgraded.utils, changed: true };
 }
 
 function main() {

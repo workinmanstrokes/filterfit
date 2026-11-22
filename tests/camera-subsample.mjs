@@ -57,6 +57,7 @@ check('patch rewrites both decode sites', once.changed && once.camera.includes('
 check('patched plugin no longer full-frame decodes', !once.camera.includes('BitmapFactory.decodeFile') && !once.camera.includes('BitmapFactory.decodeStream'));
 check('patched plugin drops the unused BitmapFactory import', !once.camera.includes('import android.graphics.BitmapFactory'));
 check('ImageUtils decodes bounds first and disables density scaling', once.utils.includes('FILTERFIT_SUBSAMPLE') && once.utils.includes('inJustDecodeBounds = true') && once.utils.includes('inScaled = false'));
+check('decodeSampledUri throws FileNotFoundException so the old catch still compiles', once.utils.includes('decodeSampledUri(Context context, Uri uri, int reqWidth, int reqHeight) throws FileNotFoundException'));
 const twice = patchSources(once.camera, once.utils);
 check('patch is idempotent', twice.changed === false && twice.utils.split('FILTERFIT_SUBSAMPLE').length === 2);
 
@@ -70,7 +71,12 @@ if (existsSync(cameraPath) && existsSync(utilsPath)) {
     cameraSrc.includes('decodeSampledFile') && !cameraSrc.includes('BitmapFactory.decodeStream') && !cameraSrc.includes('BitmapFactory.decodeFile'),
   );
   check('postinstall patched ImageUtils on disk', utilsSrc.includes('FILTERFIT_SUBSAMPLE') && utilsSrc.includes('decodeSampledUri'));
-  const again = patchSources(cameraSrc, utilsSrc);
+  const upgraded = patchSources(cameraSrc, utilsSrc);
+  check(
+    'installed decodeSampledUri throws FileNotFoundException',
+    upgraded.utils.includes('decodeSampledUri(Context context, Uri uri, int reqWidth, int reqHeight) throws FileNotFoundException'),
+  );
+  const again = patchSources(upgraded.camera, upgraded.utils);
   check('patching the installed sources again is a no-op', again.changed === false);
 } else {
   console.log('SKIP  installed plugin sources (node_modules not present)');
