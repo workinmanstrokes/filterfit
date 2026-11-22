@@ -16,8 +16,10 @@
 // and never by decoding the full frame first.
 import { decodeJpegScaled } from './jpeg-scale.js';
 
-export const WORKING_LONG_EDGE = 2048;
-export const EXPORT_LONG_EDGE = 4096;
+// Every canvas the page paints stays inside this box. A 12MP or 200MP
+// camera frame is decoded down to it; nothing is drawn larger.
+export const WORKING_LONG_EDGE = 1600;
+export const EXPORT_LONG_EDGE = 1600;
 // Passed to the Capacitor Camera plugin. The Android decoder subsamples to
 // this box (scripts/patch-capacitor-camera.mjs); a normal 12MP photo is
 // unchanged, and a 200MP frame never becomes an 800MB bitmap.
@@ -454,6 +456,7 @@ function workerEnabled(hooks) {
 function decodeScaledInWorker(file, { orientation, maxEdge, deadline, budgetMs }) {
   return new Promise((resolve, reject) => {
     let worker;
+    let blobUrl = '';
     try {
       worker = new Worker(new URL('./jpeg-worker.js', import.meta.url), { type: 'module' });
     } catch (err) {
@@ -466,6 +469,9 @@ function decodeScaledInWorker(file, { orientation, maxEdge, deadline, budgetMs }
       settled = true;
       clearTimeout(timer);
       try { worker.terminate(); } catch { /* ignore */ }
+      if (blobUrl) {
+        try { URL.revokeObjectURL(blobUrl); } catch { /* ignore */ }
+      }
       fn(value);
     };
     const timer = setTimeout(() => finish(reject, new PhotoLoadError('timeout')), Math.max(1, budgetMs));
@@ -489,30 +495,33 @@ function decodeScaledInWorker(file, { orientation, maxEdge, deadline, budgetMs }
     };
     worker.onerror = (event) => finish(reject, new Error(event.message || 'worker'));
     try {
-      worker.postMessage({ blob: file, maxEdge, orientation, deadline });
+      const payload = { maxEdge, orientation, deadline };
+      // In the browser the worker fetches the blob URL, so the main thread
+      // never copies the file into an ArrayBuffer. Node's test runner has no
+      // document, and structured-clones the Blob instead.
+      if (typeof document !== 'undefined' && typeof URL !== 'undefined' && typeof URL.createObjectURL === 'function') {
+        blobUrl = URL.createObjectURL(file);
+        payload.url = blobUrl;
+      } else {
+        payload.blob = file;
+      }
+      worker.postMessage(payload);
     } catch (err) {
       finish(reject, err);
     }
   });
 }
 
-// Real camera JPEGs (they have a scan) are decoded to maxEdge here. A thrown
-// timeout must win; any other failure of a frame past EXPORT_LONG_EDGE must
-// not continue into createImageBitmap, which would allocate the full bitmap.
+// Real camera JPEGs are decoded on a worker. A worker error is fatal: falling
+// back to the main thread is what froze Chrome after the worker ran out of
+// memory or rejected the file.
 async function decodeScaledPhoto(file, { orientation, maxEdge, budgetMs, hooks }) {
   if (!(budgetMs > 0)) throw new PhotoLoadError('timeout');
   const deadline = Date.now() + budgetMs;
-  if (workerEnabled(hooks)) {
-    try {
-      return await decodeScaledInWorker(file, { orientation, maxEdge, deadline, budgetMs });
-    } catch (err) {
-      if (err instanceof PhotoLoadError && err.code === 'timeout') throw err;
-      if (err && err.code === 'timeout') throw new PhotoLoadError('timeout');
-    }
-  }
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  if (Date.now() > deadline) throw new PhotoLoadError('timeout');
-  try {
+  // Unit tests without a Worker global opt in. The browser never sets this,
+  // so a failed worker still surfaces as an error instead of a main-thread decode.
+  if (hooks.inlineDecode === true) {
+    const bytes = new Uint8Array(await file.arrayBuffer());
     const decoded = await decodeJpegScaled(bytes, {
       maxEdge,
       orientation,
@@ -520,9 +529,14 @@ async function decodeScaledPhoto(file, { orientation, maxEdge, budgetMs, hooks }
       yieldToEventLoop: true,
     });
     return scaledResult(decoded);
+  }
+  if (!workerEnabled(hooks)) throw new PhotoLoadError('decode');
+  try {
+    return await decodeScaledInWorker(file, { orientation, maxEdge, deadline, budgetMs });
   } catch (err) {
+    if (err instanceof PhotoLoadError) throw err;
     if (err && err.code === 'timeout') throw new PhotoLoadError('timeout');
-    throw err;
+    throw new PhotoLoadError('decode');
   }
 }
 
@@ -573,7 +587,10 @@ async function loadViaImageElement(file, maxEdge, budgetMs) {
     const sw = img.naturalWidth || img.width;
     const sh = img.naturalHeight || img.height;
     if (!(sw > 0 && sh > 0)) throw new PhotoLoadError('decode');
-    if (Math.max(sw, sh) > EXPORT_LONG_EDGE) throw new PhotoLoadError('tooBig');
+    // The image element decodes the whole frame. Anything past 4096px is the
+    // full-resolution path that froze the phone; smaller frames are drawn
+    // straight down to the working edge.
+    if (Math.max(sw, sh) > 4096) throw new PhotoLoadError('tooBig');
     const target = fitLongEdge(sw, sh, maxEdge);
     const downscaled = target.width !== sw || target.height !== sh;
     if (!downscaled) {
@@ -639,17 +656,17 @@ export async function loadPhoto(file, hooks = {}) {
         hooks,
       });
     } catch (err) {
-      if (err instanceof PhotoLoadError && err.code === 'timeout') throw err;
-      if (rawLong > EXPORT_LONG_EDGE) throw new PhotoLoadError('tooBig');
+      if (err instanceof PhotoLoadError) throw err;
+      throw new PhotoLoadError('decode');
     }
   }
 
   const hooked = typeof hooks.createImageBitmap === 'function';
-  // HEIC / PNG / anything we cannot subsample, past the export cap, must not
-  // reach the browser decoder. Header-only JPEG fixtures have no scan and
-  // still go through createImageBitmap so the unit tests can assert the
-  // resize options. A real camera JPEG always has a scan and was handled above.
-  if (!hooked && meta && meta.format !== 'jpeg' && rawLong > EXPORT_LONG_EDGE) {
+  const headerOnlyJpeg = meta && meta.format === 'jpeg' && !meta.hasScan;
+  // HEIC, PNG, WebP and anything we cannot subsample must not be decoded at
+  // full size. Header-only JPEG fixtures still reach the mocked
+  // createImageBitmap so tests can see the resize options.
+  if (!hooked && !headerOnlyJpeg && rawLong > maxEdge) {
     throw new PhotoLoadError('tooBig');
   }
 

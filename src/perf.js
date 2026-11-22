@@ -45,7 +45,7 @@ export function measurePreview(image, filter, intensity = 1, tune = {}, runs = 5
     renderPreview(canvas, image, filter, intensity, tune);
     times.push(performance.now() - t0);
   }
-  return { medianMs: +median(times).toFixed(2), runs, previewLongSide: 1024 };
+  return { medianMs: +median(times).toFixed(2), runs, previewLongSide: 1600 };
 }
 
 // Full-resolution export: render time + PNG encode time + heap before/after.

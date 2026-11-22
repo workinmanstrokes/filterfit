@@ -150,10 +150,10 @@ const pngMeta = await readImageMeta(new Blob([png], { type: 'image/png' }));
 check('PNG header reads 8000x6000', pngMeta && pngMeta.width === 8000 && pngMeta.height === 6000);
 
 const fitted = fitLongEdge(8000, 6000, WORKING_LONG_EDGE);
-check('8000x6000 fits in a 2048 box', fitted.width === 2048 && fitted.height === 1536, `${fitted.width}x${fitted.height}`);
+check('8000x6000 fits in a 1600 box', fitted.width === 1600 && fitted.height === 1200, `${fitted.width}x${fitted.height}`);
 const portrait = fitLongEdge(6000, 8000, WORKING_LONG_EDGE);
-check('oriented portrait fits in a 2048 box', portrait.width === 1536 && portrait.height === 2048, `${portrait.width}x${portrait.height}`);
-check('a 12MP frame is not upscaled', fitLongEdge(4000, 3000, EXPORT_LONG_EDGE).width === 4000);
+check('oriented portrait fits in a 1600 box', portrait.width === 1200 && portrait.height === 1600, `${portrait.width}x${portrait.height}`);
+check('a 12MP web export is capped at 1600', fitLongEdge(4000, 3000, EXPORT_LONG_EDGE).width === 1600);
 
 const nativeOpts = cameraGetPhotoOptions('CAMERA', 'uri');
 check(
@@ -168,13 +168,13 @@ const started = performance.now();
 const loaded = await loadPhoto(jpegFile(8000, 6000), { createImageBitmap: mock.fn, useWorker: false });
 const elapsed = performance.now() - started;
 const heapDelta = process.memoryUsage().heapUsed - beforeHeap;
-check('8000x6000 load asks for a resized bitmap', mock.calls.length === 1 && mock.calls[0].resizeWidth === 2048 && mock.calls[0].resizeHeight === 1536, JSON.stringify(mock.calls[0]));
+check('8000x6000 load asks for a resized bitmap', mock.calls.length === 1 && mock.calls[0].resizeWidth === 1600 && mock.calls[0].resizeHeight === 1200, JSON.stringify(mock.calls[0]));
 check('resize keeps EXIF orientation from the file', mock.calls[0].imageOrientation === 'from-image');
-check('working image long edge is 2048', Math.max(loaded.width, loaded.height) === 2048, `${loaded.width}x${loaded.height}`);
+check('working image long edge is 1600', Math.max(loaded.width, loaded.height) === 1600, `${loaded.width}x${loaded.height}`);
 check('source size is remembered for export', loaded.sourceWidth === 8000 && loaded.sourceHeight === 6000 && loaded.downscaled === true);
 check('load finishes quickly', elapsed < 3000, `${elapsed.toFixed(0)}ms`);
 check('heap did not balloon to a full-frame bitmap', heapDelta < 48 * 1024 * 1024, `${Math.round(heapDelta / 1048576)}MB`);
-check('decoder allocation is the small bitmap', mock.bytes() === 2048 * 1536 * 4, `${mock.bytes()} bytes`);
+check('decoder allocation is the small bitmap', mock.bytes() === 1600 * 1200 * 4, `${mock.bytes()} bytes`);
 
 const orientMock = makeMock();
 const orientedPhoto = await loadPhoto(jpegFile(8000, 6000, { orientation: 6 }), {
@@ -183,7 +183,7 @@ const orientedPhoto = await loadPhoto(jpegFile(8000, 6000, { orientation: 6 }), 
 });
 check(
   'orientation 6 resizes the displayed portrait, not the raw landscape',
-  orientMock.calls[0].resizeWidth === 1536 && orientMock.calls[0].resizeHeight === 2048 && orientedPhoto.height === 2048,
+  orientMock.calls[0].resizeWidth === 1200 && orientMock.calls[0].resizeHeight === 1600 && orientedPhoto.height === 1600,
   JSON.stringify(orientMock.calls[0]),
 );
 
@@ -194,8 +194,8 @@ const exported = await loadPhoto(jpegFile(4000, 3000), {
   useWorker: false,
 });
 check(
-  'a 12MP export is not downscaled',
-  exported.width === 4000 && exported.height === 3000 && exported.downscaled === false && !exportMock.calls[0].resizeWidth,
+  'a 12MP export is capped at the working edge',
+  exported.width === 1600 && exported.height === 1200 && exported.downscaled === true && exportMock.calls[0].resizeWidth === 1600,
   `${exported.width}x${exported.height}`,
 );
 
@@ -203,8 +203,8 @@ const hugeMock = makeMock();
 const hugeStarted = performance.now();
 const huge = await loadPhoto(jpegFile(16320, 12240), { createImageBitmap: hugeMock.fn, useWorker: false });
 check(
-  '16320x12240 (200MP class) decodes to 2048 on the long edge',
-  Math.max(huge.width, huge.height) === WORKING_LONG_EDGE && hugeMock.calls[0].resizeWidth === 2048,
+  '16320x12240 (200MP class) decodes to 1600 on the long edge',
+  Math.max(huge.width, huge.height) === WORKING_LONG_EDGE && hugeMock.calls[0].resizeWidth === 1600,
   `${huge.width}x${huge.height} in ${(performance.now() - hugeStarted).toFixed(0)}ms, mock alloc ${hugeMock.bytes()}B`,
 );
 
@@ -270,21 +270,21 @@ function fakeCanvas() {
 }
 const big = { width: 8000, height: 6000 };
 const capped = outputSize(big, {});
-check('render refuses a full 8000px canvas', Math.max(capped.width, capped.height) <= 4096, `${capped.width}x${capped.height}`);
+check('render refuses a full 8000px canvas', Math.max(capped.width, capped.height) === 1600, `${capped.width}x${capped.height}`);
 const normal = outputSize({ width: 4000, height: 3000 }, {});
-check('a 12MP render stays 4000px', normal.width === 4000 && normal.height === 3000);
+check('a 12MP render is capped at 1600', normal.width === 1600 && normal.height === 1200);
 const previewCanvas = fakeCanvas();
 renderPreview(previewCanvas, big, FILTERS[1], 1, {});
-check('live preview of an 8000px photo is capped at 1024', Math.max(previewCanvas.width, previewCanvas.height) === 1024, `${previewCanvas.width}x${previewCanvas.height}`);
+check('live preview of an 8000px photo is capped at 1600', Math.max(previewCanvas.width, previewCanvas.height) === 1600, `${previewCanvas.width}x${previewCanvas.height}`);
 const exportCanvas = fakeCanvas();
 renderFiltered(exportCanvas, big, FILTERS[1], 1, {});
-check('sync export of an 8000px photo is capped at 4096', Math.max(exportCanvas.width, exportCanvas.height) === 4096, `${exportCanvas.width}x${exportCanvas.height}`);
+check('sync export of an 8000px photo is capped at 1600', Math.max(exportCanvas.width, exportCanvas.height) === 1600, `${exportCanvas.width}x${exportCanvas.height}`);
 const asyncCanvas = fakeCanvas();
 const asyncStarted = performance.now();
 await renderFilteredAsync(asyncCanvas, { width: 3000, height: 2000 }, FILTERS[1], 0.8, { warmth: 10 });
 check(
-  'chunked export of a 12MP frame finishes and keeps its size',
-  asyncCanvas.width === 3000 && asyncCanvas.height === 2000 && performance.now() - asyncStarted < 3000,
+  'chunked export of a 12MP frame finishes inside the working cap',
+  asyncCanvas.width === 1600 && asyncCanvas.height === 1067 && performance.now() - asyncStarted < 3000,
   `${asyncCanvas.width}x${asyncCanvas.height}`,
 );
 
@@ -328,7 +328,7 @@ let bitmapCalls = 0;
 const bigStarted = performance.now();
 const bigHeap0 = process.memoryUsage().heapUsed;
 const bigLoaded = await loadPhoto(bigFile, {
-  useWorker: true,
+  inlineDecode: true,
   createImageBitmap() {
     bitmapCalls += 1;
     throw new Error('full-frame createImageBitmap');
@@ -352,13 +352,29 @@ check(
 
 const turned = makeBlockJpeg(2400, 1600, { orientation: 6 });
 const turnedLoaded = await loadPhoto(new File([turned], 'turned.jpg', { type: 'image/jpeg' }), {
-  useWorker: false,
+  inlineDecode: true,
   createImageBitmap() { throw new Error('no'); },
 });
 check(
   'EXIF orientation 6 is applied to the working copy',
   turnedLoaded.sourceWidth === 1600 && turnedLoaded.sourceHeight === 2400 && turnedLoaded.height >= turnedLoaded.width,
   `${turnedLoaded.sourceWidth}x${turnedLoaded.sourceHeight} image ${turnedLoaded.width}x${turnedLoaded.height}`,
+);
+
+let fallbackCalls = 0;
+let workerRefused = false;
+try {
+  await loadPhoto(bigFile, {
+    useWorker: false,
+    createImageBitmap() { fallbackCalls += 1; throw new Error('main-thread decode'); },
+  });
+} catch (err) {
+  workerRefused = err instanceof PhotoLoadError && err.code === 'decode';
+}
+check(
+  'a failed worker does not decode the JPEG on the main thread',
+  workerRefused && fallbackCalls === 0,
+  `refused=${workerRefused} bitmapCalls=${fallbackCalls}`,
 );
 
 // ---------- Capture path in src/main.js ----------
@@ -464,7 +480,7 @@ check('capture path reaches recommendations', !getEl('screen-recommendations').c
 check('capture path shows a why-line', getEl('whyPick').textContent.length > 5, getEl('whyPick').textContent);
 check(
   'capture path resized the 8000px JPEG',
-  uiMock.calls.some((c) => c.resizeWidth === 2048 && c.resizeHeight === 1536),
+  uiMock.calls.some((c) => c.resizeWidth === 1600 && c.resizeHeight === 1200),
   JSON.stringify(uiMock.calls[0]),
 );
 check('capture path completes in reasonable time', uiElapsed < 4000, `${uiElapsed.toFixed(0)}ms`);

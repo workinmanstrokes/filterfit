@@ -1,7 +1,7 @@
 // FilterFit entry point: navigation, photo import, analysis, recommendations,
 // editor wiring, full-resolution export, local history, presets, and the
 // performance diagnostics harness (behind ?perf=1).
-import { FILTERS, getFilter, renderPreview, renderFilteredAsync } from './filters.js';
+import { FILTERS, getFilter, renderPreview, renderThumb, renderFilteredAsync } from './filters.js';
 import { analyzePhoto, recommendFilters, explainPick } from './analyze.js';
 import { runDiagnostics, createSliderLagTracker } from './perf.js';
 import { loadPhoto, releaseImage, EXPORT_LONG_EDGE, WORKING_LONG_EDGE, cameraGetPhotoOptions, PhotoLoadError, fitLongEdge } from './photo.js';
@@ -128,6 +128,7 @@ function reopenFromHistory(index) {
   const img = new Image();
   img.onload = () => {
     releaseImage(state.image);
+    thumbToken += 1;
     state.image = img;
     state.imageName = entry.name;
     state.sourceFile = null;
@@ -209,6 +210,7 @@ function renderFilterLibrary() {
 
 // ---------- Photo flow ----------
 let loadGeneration = 0;
+let inflightPick = '';
 
 function photoErrorMessage(err) {
   if (err instanceof PhotoLoadError && err.code === 'timeout') {
@@ -254,8 +256,17 @@ function nextPaint() {
   });
 }
 
+function pickKey(file) {
+  return `${file.name || ''}:${file.size || 0}:${file.lastModified || 0}`;
+}
+
 async function handleFile(file) {
   if (!file) return;
+  const key = pickKey(file);
+  // A restored Android tab can deliver the same camera file twice. The second
+  // copy must not start another full decode.
+  if (key && key === inflightPick) return;
+  inflightPick = key;
   const generation = ++loadGeneration;
   clearPhotoError();
   state.imageName = file.name || 'photo';
@@ -272,6 +283,7 @@ async function handleFile(file) {
       return;
     }
     releaseImage(state.image);
+    thumbToken += 1;
     state.image = loaded.image;
     state.sourceFile = typeof file.slice === 'function' ? file : null;
     state.sourceWidth = loaded.sourceWidth || loaded.width;
@@ -282,6 +294,8 @@ async function handleFile(file) {
     if (generation !== loadGeneration) return;
     showPhotoError(photoErrorMessage(err));
     showScreen('home');
+  } finally {
+    if (inflightPick === key) inflightPick = '';
   }
 }
 
@@ -314,6 +328,14 @@ function runAnalysis() {
   }, 350);
 }
 
+let thumbToken = 0;
+
+function markActiveChips() {
+  document.querySelectorAll('#filterGrid .filter-chip').forEach((chip) => {
+    chip.classList.toggle('active', chip.dataset.filter === state.selectedFilter);
+  });
+}
+
 function renderRecommendations() {
   renderPreview($('previewCanvas'), state.image, getFilter(state.selectedFilter), state.intensity, state.tune);
   const top = state.recommendations[0];
@@ -337,20 +359,33 @@ function renderRecommendations() {
   });
 }
 
-function renderEditor() {
+function paintEditor() {
   renderPreview($('editorCanvas'), state.image, getFilter(state.selectedFilter), state.intensity, state.tune);
-  $('filterGrid').innerHTML = FILTERS.map((f) => `
-    <button data-filter="${f.id}" class="filter-chip ${f.id === state.selectedFilter ? 'active' : ''}">${escapeHtml(f.name)}</button>`).join('');
-  document.querySelectorAll('#filterGrid .filter-chip').forEach((chip) => {
+  $('intensity').value = Math.round(state.intensity * 100);
+  $('intensityVal').textContent = `${Math.round(state.intensity * 100)}%`;
+  markActiveChips();
+}
+
+function renderEditor() {
+  paintEditor();
+  const grid = $('filterGrid');
+  if (grid.dataset.token === String(thumbToken) && grid.childElementCount) return;
+  grid.dataset.token = String(thumbToken);
+  grid.innerHTML = FILTERS.map((f) => `
+    <button type="button" data-filter="${f.id}" class="filter-chip ${f.id === state.selectedFilter ? 'active' : ''}">
+      <canvas class="filter-thumb" width="1" height="1" aria-hidden="true"></canvas>
+      <span>${escapeHtml(f.name)}</span>
+    </button>`).join('');
+  grid.querySelectorAll('.filter-chip').forEach((chip) => {
+    const thumb = chip.querySelector('canvas');
+    renderThumb(thumb, state.image, getFilter(chip.dataset.filter));
     chip.addEventListener('click', () => {
       state.selectedFilter = chip.dataset.filter;
       state.intensity = getFilter(state.selectedFilter).defaultIntensity;
       syncTuneInputs();
-      renderEditor();
+      paintEditor();
     });
   });
-  $('intensity').value = Math.round(state.intensity * 100);
-  $('intensityVal').textContent = `${Math.round(state.intensity * 100)}%`;
 }
 
 function syncTuneInputs() {
@@ -382,7 +417,7 @@ function scheduleEditorRender() {
   requestAnimationFrame(() => {
     editorRenderQueued = false;
     const t0 = performance.now();
-    renderEditor();
+    paintEditor();
     sliderLag.record(performance.now() - t0);
   });
 }
@@ -504,7 +539,25 @@ $('intensity').addEventListener('input', (e) => {
 
 // Hold-to-compare on both preview canvases.
 bindHoldToCompare($('previewCanvas'), renderRecommendations);
-bindHoldToCompare($('editorCanvas'), renderEditor);
+bindHoldToCompare($('editorCanvas'), paintEditor);
+
+const pageEvents = globalThis.window;
+if (pageEvents && pageEvents.addEventListener) pageEvents.addEventListener('pagehide', () => {
+  // Android Chrome often discards the tab while the camera app is open.
+  // Cancel the in-flight decode so a restored page cannot resume it.
+  loadGeneration += 1;
+  inflightPick = '';
+});
+if (pageEvents && pageEvents.addEventListener) pageEvents.addEventListener('pageshow', (event) => {
+  if (!event.persisted) return;
+  loadGeneration += 1;
+  inflightPick = '';
+  const camera = $('cameraInput');
+  const library = $('fileInput');
+  if (camera) camera.value = '';
+  if (library) library.value = '';
+  if (!state.image) showScreen('home');
+});
 
 // Preset wiring (editor).
 $('savePresetBtn').addEventListener('click', () => {

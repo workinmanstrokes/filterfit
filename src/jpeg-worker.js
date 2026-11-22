@@ -6,7 +6,14 @@ import { decodeJpegScaled } from './jpeg-scale.js';
 self.onmessage = async (event) => {
   const msg = event.data || {};
   try {
-    const bytes = new Uint8Array(await msg.blob.arrayBuffer());
+    let bytes;
+    if (msg.url) {
+      const response = await fetch(msg.url);
+      if (!response.ok) throw new Error('could not read photo');
+      bytes = new Uint8Array(await response.arrayBuffer());
+    } else {
+      bytes = new Uint8Array(await msg.blob.arrayBuffer());
+    }
     const decoded = await decodeJpegScaled(bytes, {
       maxEdge: msg.maxEdge,
       orientation: msg.orientation || 1,
