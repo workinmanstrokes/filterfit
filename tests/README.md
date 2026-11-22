@@ -80,3 +80,13 @@ category — one disagreement is a taste difference, a pattern is a rule error.
 - `blind-pick.html` — the blind test page (no app pick shown)
 - `compare-picks.mjs` — compares blind picks against the baseline
 - `blind-comparison.md` — written by the comparison step (not yet run: no human picks yet)
+
+## Phone layout check
+
+`tests/layout-check.mjs` opens the built app in a mobile Chromium at 412x915,
+360x780 and 915x412, walks home, recommendations and editor with real test
+photos, and fails if anything is wider than the screen or the page has to
+zoom out. It runs in CI (`.github/workflows/layout-check.yml`), which also
+uploads before/after screenshots as the `filterfit-phone-screenshots`
+artifact. Locally: `npm i --no-save playwright && npx playwright install chromium`,
+`npm run build && npx vite preview`, then `node tests/layout-check.mjs http://localhost:4173/ layout-shots`.

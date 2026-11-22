@@ -72,12 +72,12 @@ function renderHistory() {
   const thumbs = history.filter((h) => h.thumb).map((h, i) => `
     <button data-history="${i}" class="shrink-0 w-20 text-left">
       <img src="${h.thumb}" alt="" class="w-20 h-20 object-cover rounded-xl border border-slate-800">
-      <span class="block text-[11px] text-slate-400 truncate mt-1">${escapeHtml(h.name)}</span>
-      <span class="block text-[11px] text-emerald-400 truncate">${escapeHtml(h.filter)}</span>
+      <span class="block text-xs text-slate-400 truncate mt-1">${escapeHtml(h.name)}</span>
+      <span class="block text-xs text-emerald-400 truncate">${escapeHtml(h.filter)}</span>
     </button>`).join('');
   const textRows = history.filter((h) => !h.thumb).map((h) => `
     <div class="flex justify-between text-sm py-2 border-b border-slate-800">
-      <span class="truncate">${escapeHtml(h.name)}</span>
+      <span class="truncate min-w-0">${escapeHtml(h.name)}</span>
       <span class="text-emerald-400 shrink-0 ml-3">${escapeHtml(h.filter)} · ${h.score}%</span>
     </div>`).join('');
   el.innerHTML = '<h2 class="text-sm font-semibold text-slate-300 mb-2">Recent photos</h2>' +
@@ -159,7 +159,7 @@ function renderFilterLibrary() {
     <div class="py-2 border-b border-slate-800">
       <span class="text-sm font-semibold">${escapeHtml(f.name)}</span>
       <span class="text-xs text-emerald-400 ml-2">default ${Math.round(f.defaultIntensity * 100)}%</span>
-      <span class="text-xs text-slate-400 block mt-0.5">${escapeHtml(f.condition)}</span>
+      <span class="text-sm text-slate-400 block mt-0.5">${escapeHtml(f.condition)}</span>
     </div>`).join('');
 }
 
@@ -206,11 +206,11 @@ function renderRecommendations() {
   $('reopenedNote').classList.toggle('hidden', !state.reopenedFromHistory);
   $('top3').innerHTML = state.recommendations.map((rec, i) => `
     <button data-filter="${rec.filter.id}" class="rec-card w-full text-left bg-slate-900 border ${i === 0 ? 'border-emerald-400' : 'border-slate-800'} rounded-xl p-4">
-      <span class="flex justify-between items-center">
-        <span class="font-semibold">${i + 1}. ${rec.filter.name}</span>
-        <span class="text-emerald-400 font-bold">${rec.score}% match</span>
+      <span class="flex justify-between items-center gap-3">
+        <span class="font-semibold min-w-0 truncate">${i + 1}. ${escapeHtml(rec.filter.name)}</span>
+        <span class="text-emerald-400 font-bold shrink-0">${rec.score}% match</span>
       </span>
-      <span class="text-xs text-slate-400 block mt-1">${escapeHtml(rec.reason)}</span>
+      <span class="text-sm text-slate-400 block mt-1">${escapeHtml(rec.reason)}</span>
     </button>`).join('');
   document.querySelectorAll('.rec-card').forEach((card) => {
     card.addEventListener('click', () => {
