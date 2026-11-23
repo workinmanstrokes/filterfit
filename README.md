@@ -11,7 +11,8 @@ fine-tune controls, and full-resolution export.
 
 - Import a photo from the camera or photo library
 - On-device analysis of brightness, contrast, warmth, saturation, dominant
-  colours and subject type
+  colours and subject type — how the subject label works, and its limits, is
+  in [`docs/subject-analysis.md`](docs/subject-analysis.md)
 - Ranked top-3 filter recommendations with a match score and a plain-language reason
 - A one-line, signal-based reason for the top pick ("Warm tones + low light")
 - Hold-to-compare before/after view (press and hold the photo) on the
@@ -25,6 +26,25 @@ fine-tune controls, and full-resolution export.
 - Export the edited photo at full resolution and share it via the native share sheet
 - Local history of analysed photos and their recommended filters
 - Performance diagnostics behind `?perf=1` (analysis / preview / export timings)
+
+## UI & layout
+
+- Dark, premium photo-app styling (Tailwind). Home is the import screen;
+  recommendations show the top-3 cards with match scores and the one-line
+  reason; the editor has the intensity slider, fine-tune controls and the
+  filter grid; history and presets live on the home screen.
+- Every photo preview is shown at most 1024 px on the long side and never
+  wider than the screen, with safe-area padding — the app fits the phone
+  with no zooming or sideways scrolling. That is checked in CI at 412×915,
+  360×780 and 915×412, and landscape gets a two-column recommendations /
+  editor layout.
+- Hold-to-compare: press and hold the photo on the recommendations preview
+  or in the editor to see the unfiltered original; release to return to the
+  filtered version.
+- Filter look: 12 canvas filters (see `FILTER_LIBRARY.md`). The preview grid
+  shows the photo under every filter at thumbnail size; tapping one applies
+  it at its default intensity, and the slider then adjusts it for that photo
+  only.
 
 ## The filter library
 
@@ -67,6 +87,27 @@ test (low-end Android + older iPhone).
 [`docs/store-listing-draft.md`](docs/store-listing-draft.md) — title, short and
 long descriptions, keywords, and the monetisation options with a
 recommendation. The price is NOT decided; that is Mike's call.
+
+## Still needs a person (not code)
+
+These Lab items cannot be closed by a commit — they need Mike or three real
+people:
+
+- **3-person blind test** — run `tests/blind-pick.html` with three people;
+  `node tests/compare-picks.mjs` then writes `tests/blind-comparison.md`,
+  and the rule rewrite starts from its disagreement table. Until then the
+  warm-filter overlap (Golden Hour / Warm Glow / Sunset) stays as it is.
+- **Real-device perf numbers** — run
+  [`docs/perf-test-protocol.md`](docs/perf-test-protocol.md) on a low-end
+  Android and an older iPhone and send the diagnostics JSON back. Headless
+  numbers so far: analysis ~1 ms, preview ~14 ms at 1024 px (was ~190 ms
+  full-res per slider move), export at full resolution once per export.
+- **Monetisation decision** — the draft and recommendation (free, no ads,
+  with a one-off preset/filter pack later) are in
+  [`docs/store-listing-draft.md`](docs/store-listing-draft.md); the price is
+  Mike's call.
+- **Store screenshots** — the five shots listed in the store draft, taken
+  once the blind test and perf runs are done.
 
 ## Screens
 
@@ -153,4 +194,3 @@ server and no ML backend are required.
 ## Tech
 
 Capacitor + Vite + vanilla JavaScript + Tailwind CSS.
-

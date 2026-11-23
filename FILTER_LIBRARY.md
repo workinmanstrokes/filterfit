@@ -44,4 +44,5 @@ in the editor). Moving the slider after that overrides it for that photo only.
 dominant colour, and a subject proxy (low-light / colourful / bright / general
 — a brightness/saturation proxy, not subject detection), then scores every
 filter and returns the top 3. The full rule list and the measured baseline are
-in `tests/recommendation-baseline.md`.
+in `tests/recommendation-baseline.md`. Subjects, detection method and fallback
+are described in [`docs/subject-analysis.md`](docs/subject-analysis.md).
