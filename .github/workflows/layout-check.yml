@@ -30,6 +30,32 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Some ubuntu-24.04 runner images (seen on 20261116.133.1) ship with no
+      # Ubuntu archive in apt's sources, only packages.microsoft.com. Then
+      # `playwright install --with-deps` can't find Chromium's font packages
+      # and the check dies before it measures anything. Put the archive back
+      # when it's missing; on a normal image this step does nothing.
+      - name: Make sure apt can reach the Ubuntu archive
+        run: |
+          if grep -rqsE 'ubuntu\.com|apt-mirrors\.txt' /etc/apt/sources.list /etc/apt/sources.list.d/; then
+            echo "Ubuntu archive is already in apt sources."
+          else
+            echo "::warning::Runner image has no Ubuntu archive in apt sources; adding it."
+            sudo tee /etc/apt/sources.list.d/ubuntu-archive.sources > /dev/null <<'EOF'
+          Types: deb
+          URIs: http://azure.archive.ubuntu.com/ubuntu/
+          Suites: noble noble-updates noble-backports
+          Components: main restricted universe multiverse
+          Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+
+          Types: deb
+          URIs: http://security.ubuntu.com/ubuntu/
+          Suites: noble-security
+          Components: main restricted universe multiverse
+          Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+          EOF
+          fi
+
       - name: Install Playwright (not a project dependency)
         run: |
           npm install --no-save playwright@1.56.1
