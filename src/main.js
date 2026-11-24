@@ -2,7 +2,7 @@
 // editor wiring, full-resolution export, local history, presets, and the
 // performance diagnostics harness (behind ?perf=1).
 import { FILTERS, getFilter, renderPreview, renderThumb, renderFilteredAsync } from './filters.js';
-import { analyzePhoto, recommendFilters, explainPick } from './analyze.js';
+import { analyzePhoto, recommendFilters, explainPick, describeSignals } from './analyze.js';
 import { runDiagnostics, createSliderLagTracker } from './perf.js';
 import { loadPhoto, releaseImage, EXPORT_LONG_EDGE, WORKING_LONG_EDGE, cameraGetPhotoOptions, PhotoLoadError, fitLongEdge } from './photo.js';
 import { Camera, CameraResultType, CameraSource } from '@capacitor/camera';
@@ -11,6 +11,11 @@ import { Capacitor } from '@capacitor/core';
 const $ = (id) => document.getElementById(id);
 const HISTORY_KEY = 'filterfit.history.v1';
 const PRESETS_KEY = 'filterfit.presets.v1';
+// Pick feedback: one on-device record per "Was this pick right?" answer.
+// It is validation data for the next rule rewrite, not a human test result —
+// the 3-person blind test in tests/ is still the deciding validation.
+const PICK_FEEDBACK_KEY = 'filterfit.pick-feedback.v1';
+const MAX_PICK_FEEDBACK = 50;
 const MAX_HISTORY_WITH_IMAGE = 10;
 
 const state = {
@@ -313,6 +318,7 @@ function runAnalysis() {
       state.intensity = getFilter(state.selectedFilter).defaultIntensity;
       state.tune = { brightness: 0, contrast: 0, warmth: 0, saturation: 0 };
       syncTuneInputs();
+      resetPickFeedback();
       renderRecommendations();
       syncLargePhotoNote();
       showScreen('recommendations');
@@ -340,6 +346,13 @@ function renderRecommendations() {
   renderPreview($('previewCanvas'), state.image, getFilter(state.selectedFilter), state.intensity, state.tune);
   const top = state.recommendations[0];
   $('whyPick').textContent = top ? explainPick(state.analysis, top) : '';
+  // Show the measured signals behind the pick, not just the verdict: the
+  // numbers the scoring rules actually read, so a pick can be checked
+  // against the photo instead of feeling random.
+  const a = state.analysis;
+  $('analysisSignals').textContent = a
+    ? `Measured on this photo — brightness ${Math.round(a.brightness * 100)}% · warmth ${a.warmth >= 0 ? '+' : ''}${Math.round(a.warmth * 100)}% · saturation ${Math.round(a.saturation * 100)}% · contrast ${Math.round(a.contrast * 100)}% · ${a.dominant} dominant · strongest signals: ${describeSignals(a).slice(0, 2).map((s) => s.label).join(', ') || 'balanced light and colour'}`
+    : '';
   $('reopenedNote').classList.toggle('hidden', !state.reopenedFromHistory);
   $('top3').innerHTML = state.recommendations.map((rec, i) => `
     <button data-filter="${rec.filter.id}" class="rec-card w-full text-left bg-slate-900 border ${i === 0 ? 'border-emerald-400' : 'border-slate-800'} rounded-xl p-4">
@@ -357,6 +370,44 @@ function renderRecommendations() {
       renderRecommendations();
     });
   });
+}
+
+// ---------- Pick feedback ----------
+// "Was this pick right?" stores the verdict on-device (latest 50). A "No"
+// records whichever filter is selected at that moment as the user's pick,
+// so the next rule check can compare the app's top pick against real
+// disagreements. One answer per photo: the buttons disable after answering
+// and reset on the next analysis.
+function resetPickFeedback() {
+  const msg = $('pickFeedbackMsg');
+  if (msg) msg.textContent = '';
+  for (const id of ['pickYesBtn', 'pickNoBtn']) {
+    const btn = $(id);
+    if (btn) btn.disabled = false;
+  }
+}
+
+function recordPickFeedback(agreed) {
+  const top = state.recommendations[0];
+  if (!top || !state.analysis) return;
+  const feedback = loadJSON(PICK_FEEDBACK_KEY);
+  feedback.unshift({
+    photo: state.imageName,
+    topPick: top.filter.id,
+    topScore: top.score,
+    chosenFilter: state.selectedFilter,
+    agreed,
+    at: Date.now(),
+  });
+  saveJSON(PICK_FEEDBACK_KEY, feedback.slice(0, MAX_PICK_FEEDBACK));
+  const msg = $('pickFeedbackMsg');
+  if (msg) msg.textContent = agreed
+    ? 'Thanks — noted as a good pick.'
+    : 'Thanks — noted. Your pick above is what the next rule check will compare against.';
+  for (const id of ['pickYesBtn', 'pickNoBtn']) {
+    const btn = $(id);
+    if (btn) btn.disabled = true;
+  }
 }
 
 function paintEditor() {
@@ -527,6 +578,8 @@ $('cameraBtn').addEventListener('click', async () => {
 $('historyBtn').addEventListener('click', () => { showScreen('home'); renderHistory(); });
 
 // Editor wiring
+$('pickYesBtn').addEventListener('click', () => recordPickFeedback(true));
+$('pickNoBtn').addEventListener('click', () => recordPickFeedback(false));
 $('openEditorBtn').addEventListener('click', () => { renderEditor(); showScreen('editor'); });
 $('intensity').addEventListener('input', (e) => {
   state.intensity = e.target.value / 100;

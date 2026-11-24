@@ -62,6 +62,16 @@ blind test in `tests/`.
 - `node tests/run-recommendations.mjs` runs the real scoring code over the set
   and writes `tests/recommendation-baseline.md` — the app's pick before any
   human test.
+- The recommendations screen shows the measured signals behind the pick
+  (brightness, warmth, saturation, contrast, dominant colour, strongest
+  signals) under the one-line reason, so a pick can be checked against what
+  was actually measured instead of feeling random. The scoring rules and
+  thresholds are in `src/analyze.js` (`scoreFilter`, `describeSignals`).
+- "Was this pick right?" on the recommendations screen stores the verdict
+  on-device (localStorage `filterfit.pick-feedback.v1`, latest 50) — a "No"
+  records whichever filter is selected as the user's pick, so disagreements
+  accumulate as real data for the next rule rewrite. That is not the blind
+  test: the 3-person blind test below is still the deciding validation.
 - `tests/blind-pick.html` is the blind test: three people pick their favourite
   look per photo with the app's pick hidden. `node tests/compare-picks.mjs`
   compares their picks against the baseline. See `tests/README.md`.
@@ -180,6 +190,9 @@ server and no ML backend are required.
    in-app perf diagnostics mode
 9. Fixed 24-photo test set, Node recommendation baseline, and a blind-pick
    page + comparison script for the 3-person human test
+10. In-app evidence for the pick (measured signals shown on the
+    recommendations screen) and pick feedback recorded locally; the 3-person
+    blind test remains the deciding validation (human step, still pending)
 
 ## Open questions
 
